@@ -46,6 +46,9 @@ class PortfolioSyncWorker(
 
 
             val prefs = com.prajwal.utilities.tools.wealthtracker.data.WealthPreferences(applicationContext)
+            prefs.updateLastAutoSyncTimestamp(System.currentTimeMillis())
+            sendSyncNotification(applicationContext, holdings.count { !it.isManual })
+
             val autoSnapshotEnabled = prefs.autoSnapshotEnabled.first()
             if (autoSnapshotEnabled) {
                 val autoSnapshotDay = prefs.autoSnapshotDayOfMonth.first()
@@ -109,6 +112,38 @@ class PortfolioSyncWorker(
         } catch (e: Exception) {
             e.printStackTrace()
             Result.retry()
+        }
+    }
+
+    private fun sendSyncNotification(context: Context, updatedCount: Int) {
+        try {
+            val channelId = "wealth_tracker_sync_channel"
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager
+                ?: return
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    channelId,
+                    "Wealth Tracker Sync",
+                    android.app.NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "Notifications for daily 6:00 AM portfolio refresh"
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val timeStr = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+            val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.stat_notify_sync)
+                .setContentTitle("Wealth Tracker Refreshed")
+                .setContentText("Daily portfolio refresh completed at $timeStr.")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .build()
+
+            notificationManager.notify(1001, notification)
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 }

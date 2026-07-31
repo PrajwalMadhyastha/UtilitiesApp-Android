@@ -368,6 +368,7 @@ fun WealthTrackerScreen(
                     transactions = transactions,
                     isSyncing = isSyncing,
                     includeRetirement = includeRetirementInTotal,
+                    lastAutoSyncTimestamp = viewModel.lastAutoSyncTimestamp.collectAsState().value,
                     nifty50Prices = nifty50Prices,
                     onToggleIncludeRetirement = viewModel::toggleIncludeRetirementInTotal,
                     onSyncNow = {
@@ -385,7 +386,10 @@ fun WealthTrackerScreen(
                     snapshots = snapshots,
                     snapshotsChronological = snapshotsChronological,
                     transactions = transactions,
-                    includeRetirement = includeRetirementInTotal
+                    includeRetirement = includeRetirementInTotal,
+                    holdings = holdings,
+                    expectedReturnPercent = calculatorSettings.expectedReturnPercent,
+                    expenseRatioSyncFailed = viewModel.expenseRatioSyncFailed.collectAsState().value
                 )
 
                 WealthTab.MILESTONES -> MilestonesTab(

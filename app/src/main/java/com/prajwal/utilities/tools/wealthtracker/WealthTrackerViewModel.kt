@@ -69,6 +69,9 @@ class WealthTrackerViewModel(
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
+    private val _expenseRatioSyncFailed = MutableStateFlow(false)
+    val expenseRatioSyncFailed: StateFlow<Boolean> = _expenseRatioSyncFailed.asStateFlow()
+
     private val _searchQuery = MutableStateFlow("")
     private val _searchIsMf = MutableStateFlow(false)
 
@@ -165,6 +168,9 @@ class WealthTrackerViewModel(
 
     val includeRetirementInTotal: StateFlow<Boolean> = prefs.includeRetirementInTotal
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val lastAutoSyncTimestamp: StateFlow<Long> = prefs.lastAutoSyncTimestamp
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
     fun updateAutoSnapshotEnabled(enabled: Boolean) {
         viewModelScope.launch { prefs.updateAutoSnapshotEnabled(enabled) }
@@ -268,8 +274,10 @@ class WealthTrackerViewModel(
                 // The previous code called .stateIn(viewModelScope).value on a cold Flow,
                 // which always returned an empty list before the first DB emission arrived.
                 val currentHoldings = holdings.value
-                val allHoldingsSynced = currentHoldings.isNotEmpty() && currentHoldings.all { it.latestPrice > 0.0 }
+                val allHoldingsSynced = currentHoldings.isNotEmpty() && currentHoldings.all { it.latestPrice > 0.0 && (it.instrumentType != "MF" || it.expenseRatio > 0.0) }
                 var skippedCount = 0
+                var anyExpenseRatioFetchFailed = false
+
                 for (holding in currentHoldings) {
                     if (holding.isManual) {
                         skippedCount++
@@ -281,7 +289,17 @@ class WealthTrackerViewModel(
                     }
 
                     val prices = if (holding.instrumentType == "MF") {
-                        marketDataRepository.fetchMfNav(holding.identifier)
+                        val fetchedPrices = marketDataRepository.fetchMfNav(holding.identifier)
+                        // Fetch Expense Ratio if MF and it's missing or we are syncing.
+                        // We will try fetching if it's 0.0 or just generally periodically.
+                        // For this implementation, we will always try if it's a full sync.
+                        val expenseRatio = marketDataRepository.fetchMfExpenseRatio(holding.name)
+                        if (expenseRatio == null) {
+                            anyExpenseRatioFetchFailed = true
+                        } else if (expenseRatio > 0.0 && expenseRatio != holding.expenseRatio) {
+                            repository.updateHolding(holding.copy(expenseRatio = expenseRatio))
+                        }
+                        fetchedPrices
                     } else {
                         marketDataRepository.fetchStockPrice(holding.identifier, holding.exchange)
                     }
@@ -295,6 +313,8 @@ class WealthTrackerViewModel(
                     }
                 }
                 
+                _expenseRatioSyncFailed.value = anyExpenseRatioFetchFailed
+
                 if (currentHoldings.isNotEmpty() && skippedCount == currentHoldings.size) {
                     withContext(Dispatchers.Main) {
                         onMessage?.invoke("Market is closed. Prices are up to date.")

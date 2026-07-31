@@ -46,7 +46,10 @@ fun ReportsTab(
     snapshots: List<AssetSnapshotEntity>,          // newest-first (for latest diversification)
     snapshotsChronological: List<AssetSnapshotEntity>,  // oldest-first (for growth chart)
     transactions: List<com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity>,
-    includeRetirement: Boolean
+    includeRetirement: Boolean,
+    holdings: List<com.prajwal.utilities.tools.wealthtracker.data.db.HoldingEntity>,
+    expectedReturnPercent: Double,
+    expenseRatioSyncFailed: Boolean
 ) {
     if (snapshots.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -85,10 +88,6 @@ fun ReportsTab(
         ((totalCurrent / totalInvested).pow(1.0 / durationYears) - 1.0) * 100.0
     else null
 
-    val overallXirr = if (transactions.isNotEmpty()) {
-        com.prajwal.utilities.tools.wealthtracker.data.XirrCalculator.calculateXirr(transactions, totalCurrent) * 100.0
-    } else 0.0
-
     // Toggle: show Invested or Current value breakdown in the donut
     var showInvested by remember { mutableStateOf(false) }
     val assetClasses = allAssetClasses.filter { if (showInvested) it.invested > 0 else it.current > 0 }
@@ -124,37 +123,6 @@ fun ReportsTab(
                                 fontWeight = FontWeight.Bold,
                                 color = returnColor
                             )
-                        }
-                    }
-                    // XIRR
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (overallXirr != 0.0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("XIRR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (overallXirr != 0.0) {
-                                Text(
-                                    "${if (overallXirr >= 0) "+" else ""}${"%.2f".format(overallXirr)}%",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else {
-                                Text(
-                                    "—",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    "Need 1+ day track record",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
                         }
                     }
                     // CAGR
@@ -361,6 +329,87 @@ fun ReportsTab(
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             LegendItem(color = Color(0xFF6366F1), label = "Invested", dashed = true)
                             LegendItem(color = Color(0xFF10B981), label = "Current Value", dashed = false)
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Section C: Wealth Drain Analyzer ──────────────────────────────────
+        val mfsWithExpense = holdings.filter { it.instrumentType == "MF" && it.expenseRatio > 0.0 }
+        if (mfsWithExpense.isNotEmpty()) {
+            item {
+                Text(
+                    "Wealth Drain Analyzer",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                Text(
+                    "10-year projected fee impact on current Mutual Funds based on ${String.format("%.1f", expectedReturnPercent)}% assumed return",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            item {
+                if (expenseRatioSyncFailed) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                    ) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "⚠️ Automatic Expense Ratio syncing is currently unavailable due to source changes. Displayed fees may be outdated.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
+
+                Card(modifier = Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(2.dp)) {
+                    Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        var totalValue = 0.0
+                        var totalDrain10Y = 0.0
+                        
+                        mfsWithExpense.forEach { mf ->
+                            val currentVal = mf.unitsHeld * mf.latestPrice
+                            totalValue += currentVal
+                            val fvWithoutExpense = currentVal * (1.0 + expectedReturnPercent / 100.0).pow(10)
+                            val fvWithExpense = currentVal * (1.0 + (expectedReturnPercent - mf.expenseRatio) / 100.0).pow(10)
+                            totalDrain10Y += (fvWithoutExpense - fvWithExpense)
+                        }
+
+                        Column {
+                            Text("10-Year Projected Wealth Drain", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "-${MilestoneCalculator.formatInrExact(totalDrain10Y)}",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+
+                        HorizontalDivider()
+
+                        mfsWithExpense.sortedByDescending { it.expenseRatio }.forEachIndexed { i, asset ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(asset.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    Text("Current Val: ${MilestoneCalculator.formatInrExact(asset.unitsHeld * asset.latestPrice)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Text(
+                                    "${asset.expenseRatio}%",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (asset.expenseRatio > 1.0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                         }
                     }
                 }

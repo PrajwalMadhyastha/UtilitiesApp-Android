@@ -29,6 +29,7 @@ class WealthPreferences(private val context: Context) {
         val AUTO_SNAPSHOT_ENABLED = booleanPreferencesKey("auto_snapshot_enabled")
         val AUTO_SNAPSHOT_DAY_OF_MONTH = androidx.datastore.preferences.core.intPreferencesKey("auto_snapshot_day_of_month")
         val INCLUDE_RETIREMENT_IN_TOTAL = booleanPreferencesKey("include_retirement_in_total")
+        val LAST_AUTO_SYNC_TIMESTAMP = androidx.datastore.preferences.core.longPreferencesKey("last_auto_sync_timestamp")
 
         // Defaults
         const val DEFAULT_MONTHLY_INVESTMENT = 10000.0   // ₹10,000/month
@@ -70,6 +71,9 @@ class WealthPreferences(private val context: Context) {
     val includeRetirementInTotal: Flow<Boolean> = context.wealthDataStore.data
         .map { it[INCLUDE_RETIREMENT_IN_TOTAL] ?: true }
 
+    val lastAutoSyncTimestamp: Flow<Long> = context.wealthDataStore.data
+        .map { it[LAST_AUTO_SYNC_TIMESTAMP] ?: 0L }
+
     suspend fun updateMonthlyInvestment(amount: Double) {
         context.wealthDataStore.edit { it[MONTHLY_INVESTMENT] = amount }
     }
@@ -104,5 +108,9 @@ class WealthPreferences(private val context: Context) {
 
     suspend fun updateIncludeRetirementInTotal(include: Boolean) {
         context.wealthDataStore.edit { it[INCLUDE_RETIREMENT_IN_TOTAL] = include }
+    }
+
+    suspend fun updateLastAutoSyncTimestamp(timestamp: Long) {
+        context.wealthDataStore.edit { it[LAST_AUTO_SYNC_TIMESTAMP] = timestamp }
     }
 }

@@ -290,4 +290,46 @@ class MarketDataRepository private constructor() {
             emptyList()
         }
     }
+
+    /**
+     * Scrape Expense Ratio from Moneycontrol for a given mutual fund name.
+     */
+    suspend fun fetchMfExpenseRatio(fundName: String): Double? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val encodedQuery = java.net.URLEncoder.encode(fundName, "UTF-8")
+            val searchRequest = okhttp3.Request.Builder()
+                .url("https://www.moneycontrol.com/mccode/common/autosuggestion_solr.php?query=$encodedQuery&type=2&format=json")
+                .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10)")
+                .addHeader("Accept", "application/json")
+                .build()
+
+            val searchResponse = sharedOkHttpClient.newCall(searchRequest).execute()
+            if (!searchResponse.isSuccessful) return@withContext null
+
+            val searchBody = searchResponse.body()?.string() ?: ""
+            val linkMatch = Regex(""""link_src"\s*:\s*"([^"]+)"""").find(searchBody)
+            
+            if (linkMatch == null) return@withContext null
+
+            val detailUrlStr = linkMatch.groupValues[1]
+            val detailRequest = okhttp3.Request.Builder()
+                .url(detailUrlStr)
+                .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10)")
+                .build()
+
+            val detailResponse = sharedOkHttpClient.newCall(detailRequest).execute()
+            if (!detailResponse.isSuccessful) return@withContext null
+
+            val detailBody = detailResponse.body()?.string() ?: ""
+
+            // Extract from Next.js JSON blob or HTML: "expenseRatio":"0.53 %"
+            val expenseRatioRegex = Regex(""""expenseRatio"\s*:\s*"([0-9.]+)\s*%?"""")
+            val match = expenseRatioRegex.find(detailBody)
+            
+            return@withContext match?.groupValues?.get(1)?.toDoubleOrNull()
+        } catch (e: Exception) {
+            Log.e("MarketDataRepo", "MF Expense Ratio fetch exception for $fundName", e)
+            null
+        }
+    }
 }
