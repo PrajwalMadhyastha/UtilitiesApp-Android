@@ -48,6 +48,7 @@ fun PortfolioTab(
     transactions: List<com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity>,
     isSyncing: Boolean,
     includeRetirement: Boolean,
+    lastAutoSyncTimestamp: Long = 0L,
     nifty50Prices: AssetPrices? = null,
     onToggleIncludeRetirement: () -> Unit,
     onSyncNow: () -> Unit,
@@ -57,6 +58,7 @@ fun PortfolioTab(
     var snapshotToDelete by remember { mutableStateOf<AssetSnapshotEntity?>(null) }
     var justSaved by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val dateFmt = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
 
     // Calculate live totals from holdings
     val eqHoldings = holdings.filter { it.assetClass == "Equity" }
@@ -82,10 +84,6 @@ fun PortfolioTab(
     val totalCur = eqCur + gdCur + dbCur + slCur + rtCur + if (includeRetirement) retCur else 0.0
     val gain = totalCur - totalInv
     val gainPositive = gain >= 0
-
-    val overallXirr = if (transactions.isNotEmpty()) {
-        com.prajwal.utilities.tools.wealthtracker.data.XirrCalculator.calculateXirr(transactions, totalCur)
-    } else 0.0
 
     val dailyGain = holdings.sumOf { if (it.previousClosePrice > 0) it.unitsHeld * (it.latestPrice - it.previousClosePrice) else 0.0 }
     val dailyPrevCloseTotal = holdings.sumOf { if (it.previousClosePrice > 0) it.unitsHeld * it.previousClosePrice else 0.0 }
@@ -140,16 +138,28 @@ fun PortfolioTab(
         item {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Include PF/NPS", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.width(8.dp))
-                Switch(
-                    checked = includeRetirement,
-                    onCheckedChange = { onToggleIncludeRetirement() },
-                    modifier = Modifier.height(24.dp)
-                )
+                if (lastAutoSyncTimestamp > 0) {
+                    Text(
+                        "Auto-refreshed: ${dateFmt.format(Date(lastAutoSyncTimestamp))}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Spacer(Modifier.width(1.dp))
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Include PF/NPS", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.width(8.dp))
+                    Switch(
+                        checked = includeRetirement,
+                        onCheckedChange = { onToggleIncludeRetirement() },
+                        modifier = Modifier.height(24.dp)
+                    )
+                }
             }
         }
 
@@ -215,12 +225,6 @@ fun PortfolioTab(
                             )
                             if (totalInv > 0) {
                                 val pct = (gain / totalInv * 100)
-                                Text(
-                                    "XIRR: ${"%.2f".format(overallXirr * 100)}%",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
                                 Text(
                                     "${if (gainPositive) "+" else ""}${String.format("%.2f", pct)}%",
                                     style = MaterialTheme.typography.titleSmall,
@@ -294,7 +298,7 @@ fun PortfolioTab(
         val sixHoursMs = 6 * 60 * 60 * 1000L
         val now = System.currentTimeMillis()
         val hasStalePrices = !isSyncing && holdings.any { h ->
-            h.latestPrice > 0 && (now - h.lastUpdatedAt) > sixHoursMs
+            !h.isManual && h.latestPrice > 0 && (now - h.lastUpdatedAt) > sixHoursMs
         }
         if (hasStalePrices) {
             item {
