@@ -30,12 +30,16 @@ class WealthPreferences(private val context: Context) {
         val AUTO_SNAPSHOT_DAY_OF_MONTH = androidx.datastore.preferences.core.intPreferencesKey("auto_snapshot_day_of_month")
         val INCLUDE_RETIREMENT_IN_TOTAL = booleanPreferencesKey("include_retirement_in_total")
         val LAST_AUTO_SYNC_TIMESTAMP = androidx.datastore.preferences.core.longPreferencesKey("last_auto_sync_timestamp")
+        val HIDE_VALUES = booleanPreferencesKey("hide_values")
 
         // Defaults
         const val DEFAULT_MONTHLY_INVESTMENT = 10000.0   // ₹10,000/month
         const val DEFAULT_ANNUAL_STEPUP_PERCENT = 10.0   // 10% step-up per year
         const val DEFAULT_EXPECTED_RETURN_PERCENT = 12.0 // 12% annual return
     }
+
+    val hideValues: Flow<Boolean> = context.wealthDataStore.data
+        .map { it[HIDE_VALUES] ?: false }
 
     val monthlyInvestment: Flow<Double> = context.wealthDataStore.data
         .map { it[MONTHLY_INVESTMENT] ?: DEFAULT_MONTHLY_INVESTMENT }
@@ -112,5 +116,9 @@ class WealthPreferences(private val context: Context) {
 
     suspend fun updateLastAutoSyncTimestamp(timestamp: Long) {
         context.wealthDataStore.edit { it[LAST_AUTO_SYNC_TIMESTAMP] = timestamp }
+    }
+
+    suspend fun updateHideValues(hide: Boolean) {
+        context.wealthDataStore.edit { it[HIDE_VALUES] = hide }
     }
 }

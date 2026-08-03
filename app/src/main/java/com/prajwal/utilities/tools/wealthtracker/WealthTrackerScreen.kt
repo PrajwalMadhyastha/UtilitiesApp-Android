@@ -14,6 +14,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
@@ -272,6 +274,18 @@ fun WealthTrackerScreen(
                     }
                 },
                 actions = {
+                    val hideValues by viewModel.hideValues.collectAsState()
+                    LaunchedEffect(hideValues) {
+                        com.prajwal.utilities.tools.wealthtracker.data.MilestoneCalculator.isValuesHidden = hideValues
+                    }
+
+                    IconButton(onClick = { viewModel.toggleHideValues() }) {
+                        Icon(
+                            imageVector = if (hideValues) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = "Toggle Hide Values"
+                        )
+                    }
+
                     if (BiometricHelper.isBiometricAvailable(context)) {
                         IconButton(onClick = { viewModel.toggleBiometric() }) {
                             Icon(

@@ -171,6 +171,13 @@ class WealthTrackerViewModel(
 
     val lastAutoSyncTimestamp: StateFlow<Long> = prefs.lastAutoSyncTimestamp
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+        
+    val hideValues: StateFlow<Boolean> = prefs.hideValues
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun toggleHideValues() {
+        viewModelScope.launch { prefs.updateHideValues(!hideValues.value) }
+    }
 
     fun updateAutoSnapshotEnabled(enabled: Boolean) {
         viewModelScope.launch { prefs.updateAutoSnapshotEnabled(enabled) }

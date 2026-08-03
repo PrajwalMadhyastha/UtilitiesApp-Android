@@ -1,5 +1,11 @@
 package com.prajwal.utilities.tools.wealthtracker.data
 
+import java.text.NumberFormat
+import java.util.Locale
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
 /**
  * Pure Kotlin milestone calculator.
  * No Android dependencies — fully unit-testable.
@@ -11,6 +17,8 @@ package com.prajwal.utilities.tools.wealthtracker.data
  *  - Calculation starts from current portfolio value [currentPortfolioValue]
  */
 object MilestoneCalculator {
+
+    var isValuesHidden by mutableStateOf(false)
 
     data class MilestoneResult(
         val targetAmount: Double,
@@ -95,11 +103,12 @@ object MilestoneCalculator {
     }
 
     fun formatInr(amount: Double): String {
+        if (isValuesHidden) return "****"
         val isNegative = amount < 0
         val absAmount = kotlin.math.abs(amount)
         val formatted = when {
             absAmount >= 1_00_00_000 -> "₹%.2f Cr".format(absAmount / 1_00_00_000)
-            absAmount >= 1_00_000 -> "₹%.1f L".format(absAmount / 1_00_000)
+            absAmount >= 1_00_000 -> "₹%.1f L".format(absAmount / 1_00_00_000)
             else -> "₹%.0f".format(absAmount)
         }
         return if (isNegative) "-$formatted" else formatted
@@ -107,7 +116,8 @@ object MilestoneCalculator {
 
     /** Format a number with exact Indian commas (e.g. ₹1,23,456) and optional decimals */
     fun formatInrExact(amount: Double, showDecimals: Boolean = false): String {
-        val format = java.text.NumberFormat.getCurrencyInstance(java.util.Locale("en", "IN"))
+        if (isValuesHidden) return "****"
+        val format = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
         format.maximumFractionDigits = if (showDecimals) 2 else 0
         format.minimumFractionDigits = if (showDecimals) 2 else 0
         return format.format(amount)
