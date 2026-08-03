@@ -294,9 +294,27 @@ class MarketDataRepository private constructor() {
     /**
      * Scrape Expense Ratio from Moneycontrol for a given mutual fund name.
      */
-    suspend fun fetchMfExpenseRatio(fundName: String): Double? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+    suspend fun fetchMfExpenseRatio(fundName: String, amfiCode: String? = null): Double? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
-            val encodedQuery = java.net.URLEncoder.encode(fundName, "UTF-8")
+            var searchName = fundName
+            
+            if (amfiCode != null) {
+                try {
+                    val mfapiReq = okhttp3.Request.Builder().url("https://api.mfapi.in/mf/$amfiCode").build()
+                    val mfapiResp = sharedOkHttpClient.newCall(mfapiReq).execute()
+                    if (mfapiResp.isSuccessful) {
+                        val body = mfapiResp.body()?.string() ?: ""
+                        val nameMatch = Regex(""""scheme_name"\s*:\s*"([^"]+)"""").find(body)
+                        if (nameMatch != null) {
+                            searchName = nameMatch.groupValues[1]
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MarketDataRepo", "Failed to fetch official AMFI name for $amfiCode", e)
+                }
+            }
+
+            val encodedQuery = java.net.URLEncoder.encode(searchName, "UTF-8")
             val searchRequest = okhttp3.Request.Builder()
                 .url("https://www.moneycontrol.com/mccode/common/autosuggestion_solr.php?query=$encodedQuery&type=2&format=json")
                 .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10)")
@@ -307,11 +325,35 @@ class MarketDataRepository private constructor() {
             if (!searchResponse.isSuccessful) return@withContext null
 
             val searchBody = searchResponse.body()?.string() ?: ""
-            val linkMatch = Regex(""""link_src"\s*:\s*"([^"]+)"""").find(searchBody)
             
-            if (linkMatch == null) return@withContext null
+            val isDirectFund = searchName.contains("direct", ignoreCase = true)
+            val isRegularFund = searchName.contains("regular", ignoreCase = true)
+            
+            val blocks = searchBody.split("{")
+            var bestUrlStr: String? = null
+            var firstUrlStr: String? = null
 
-            val detailUrlStr = linkMatch.groupValues[1]
+            for (block in blocks) {
+                val linkMatch = Regex(""""link_src"\s*:\s*"([^"]+)"""").find(block)
+                val nameMatch = Regex(""""name"\s*:\s*"([^"]+)"""").find(block)
+                
+                if (linkMatch != null && nameMatch != null) {
+                    val url = linkMatch.groupValues[1]
+                    val name = nameMatch.groupValues[1]
+                    if (firstUrlStr == null) firstUrlStr = url
+                    
+                    if (isDirectFund && name.contains("direct", ignoreCase = true)) {
+                        bestUrlStr = url
+                        break
+                    }
+                    if (isRegularFund && name.contains("regular", ignoreCase = true)) {
+                        bestUrlStr = url
+                        break
+                    }
+                }
+            }
+            
+            val detailUrlStr = bestUrlStr ?: firstUrlStr ?: return@withContext null
             val detailRequest = okhttp3.Request.Builder()
                 .url(detailUrlStr)
                 .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10)")

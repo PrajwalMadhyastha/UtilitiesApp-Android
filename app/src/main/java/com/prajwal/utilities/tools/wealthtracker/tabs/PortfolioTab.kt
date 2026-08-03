@@ -285,12 +285,17 @@ fun PortfolioTab(
                 "Gold" to Pair(gdInv, gdCur),
                 "Debt" to Pair(dbInv, dbCur),
                 "Silver" to Pair(slInv, slCur),
-                "REITs" to Pair(rtInv, rtCur),
-                "Retirement" to Pair(retInv, retCur)
-            ).filter { it.second.first > 0 || it.second.second > 0 }
+                "REITs" to Pair(rtInv, rtCur)
+            )
             
-            if (assets.isNotEmpty()) {
-                AssetBreakdownCard(assets)
+            if (includeRetirement) {
+                assets.add("Retirement" to Pair(retInv, retCur))
+            }
+            
+            val filteredAssets = assets.filter { it.second.first > 0 || it.second.second > 0 }
+            
+            if (filteredAssets.isNotEmpty()) {
+                AssetBreakdownCard(filteredAssets)
             }
         }
 

@@ -414,6 +414,76 @@ fun ReportsTab(
                     }
                 }
             }
+            
+            item {
+                Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), elevation = CardDefaults.cardElevation(2.dp)) {
+                    Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("Current Fee Run-Rate", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        
+                        var totalAnnualFee = 0.0
+                        mfsWithExpense.forEach { mf ->
+                            val currentVal = mf.unitsHeld * mf.latestPrice
+                            val annualFee = currentVal * (mf.expenseRatio / 100.0)
+                            totalAnnualFee += annualFee
+                        }
+                        
+                        val totalMonthlyFee = totalAnnualFee / 12.0
+                        
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Column {
+                                Text("Monthly Fees", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    MilestoneCalculator.formatInrExact(totalMonthlyFee),
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Annual Fees", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    MilestoneCalculator.formatInrExact(totalAnnualFee),
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                        
+                        HorizontalDivider()
+                        
+                        mfsWithExpense.sortedByDescending { (it.unitsHeld * it.latestPrice) * (it.expenseRatio / 100.0) }.forEach { asset ->
+                            val currentVal = asset.unitsHeld * asset.latestPrice
+                            val annualFee = currentVal * (asset.expenseRatio / 100.0)
+                            val monthlyFee = annualFee / 12.0
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(asset.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    Text("${asset.expenseRatio}% TER", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        "${MilestoneCalculator.formatInrExact(monthlyFee)} /mo",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                    Text(
+                                        "${MilestoneCalculator.formatInrExact(annualFee)} /yr",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

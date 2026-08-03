@@ -317,11 +317,28 @@ fun WealthTrackerScreen(
             )
         }
     ) { paddingValues ->
+        val syncProgress by viewModel.syncProgress.collectAsState()
+        val syncMessage by viewModel.syncMessage.collectAsState()
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            if (isSyncing) {
+                LinearProgressIndicator(
+                    progress = { syncProgress },
+                    modifier = Modifier.fillMaxWidth(),
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+                Text(
+                    text = syncMessage,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+
             // Tab row
             ScrollableTabRow(
                 selectedTabIndex = selectedTab.ordinal,

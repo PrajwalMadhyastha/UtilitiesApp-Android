@@ -263,37 +263,42 @@ class WealthTrackerViewModel(
         }
     }
 
+    private val _syncProgress = MutableStateFlow(0f)
+    val syncProgress: StateFlow<Float> = _syncProgress.asStateFlow()
+
+    private val _syncMessage = MutableStateFlow("")
+    val syncMessage: StateFlow<String> = _syncMessage.asStateFlow()
+
     fun syncPricesNow(onMessage: ((String) -> Unit)? = null) {
         if (_isSyncing.value) return
         viewModelScope.launch {
             _isSyncing.value = true
+            _syncProgress.value = 0f
+            _syncMessage.value = "Starting sync..."
             val startTime = System.currentTimeMillis()
             try {
                 fetchNifty50()
-                // FIX #1: Use the already-subscribed `holdings` StateFlow directly.
-                // The previous code called .stateIn(viewModelScope).value on a cold Flow,
-                // which always returned an empty list before the first DB emission arrived.
                 val currentHoldings = holdings.value
                 val allHoldingsSynced = currentHoldings.isNotEmpty() && currentHoldings.all { it.latestPrice > 0.0 && (it.instrumentType != "MF" || it.expenseRatio > 0.0) }
                 var skippedCount = 0
                 var anyExpenseRatioFetchFailed = false
 
-                for (holding in currentHoldings) {
+                val totalHoldings = currentHoldings.size
+                currentHoldings.forEachIndexed { index, holding ->
+                    _syncProgress.value = if (totalHoldings > 0) index.toFloat() / totalHoldings else 0f
+                    _syncMessage.value = "Updating ${holding.name}..."
+
                     if (holding.isManual) {
                         skippedCount++
-                        continue
+                        return@forEachIndexed
                     }
-                    if (allHoldingsSynced && MarketDataRepository.shouldSkipSync(holding.lastUpdatedAt)) {
-                        skippedCount++
-                        continue
-                    }
+                    
+                    // For manual syncs, we bypass the MarketDataRepository.shouldSkipSync check
+                    // The PortfolioSyncWorker will still respect it for background auto-syncs.
 
                     val prices = if (holding.instrumentType == "MF") {
                         val fetchedPrices = marketDataRepository.fetchMfNav(holding.identifier)
-                        // Fetch Expense Ratio if MF and it's missing or we are syncing.
-                        // We will try fetching if it's 0.0 or just generally periodically.
-                        // For this implementation, we will always try if it's a full sync.
-                        val expenseRatio = marketDataRepository.fetchMfExpenseRatio(holding.name)
+                        val expenseRatio = marketDataRepository.fetchMfExpenseRatio(holding.name, holding.identifier)
                         if (expenseRatio == null) {
                             anyExpenseRatioFetchFailed = true
                         } else if (expenseRatio > 0.0 && expenseRatio != holding.expenseRatio) {
@@ -313,6 +318,8 @@ class WealthTrackerViewModel(
                     }
                 }
                 
+                _syncProgress.value = 1f
+                _syncMessage.value = "Sync complete"
                 _expenseRatioSyncFailed.value = anyExpenseRatioFetchFailed
 
                 if (currentHoldings.isNotEmpty() && skippedCount == currentHoldings.size) {
