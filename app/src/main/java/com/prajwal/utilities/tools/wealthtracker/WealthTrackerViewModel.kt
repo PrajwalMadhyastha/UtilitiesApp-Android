@@ -371,7 +371,8 @@ class WealthTrackerViewModel(
             try {
                 val currentHoldings = holdings.value
                 val currentSnapshots = snapshots.value
-                val backup = WealthBackup(currentHoldings, currentSnapshots)
+                val currentTransactions = transactions.value
+                val backup = WealthBackup(currentHoldings, currentSnapshots, currentTransactions)
                 val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
                 val json = moshi.adapter(WealthBackup::class.java).toJson(backup)
                 
@@ -396,7 +397,19 @@ class WealthTrackerViewModel(
                     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
                     val backup = moshi.adapter(WealthBackup::class.java).fromJson(json)
                     if (backup != null) {
-                        backup.holdings.forEach { repository.insertHolding(it.copy(id = 0)) }
+                        val oldToNewIdMap = mutableMapOf<Int, Int>()
+                        backup.holdings.forEach { oldHolding ->
+                            val newId = repository.insertHolding(oldHolding.copy(id = 0)).toInt()
+                            oldToNewIdMap[oldHolding.id] = newId
+                        }
+                        
+                        backup.transactions.forEach { oldTx ->
+                            val newHoldingId = oldToNewIdMap[oldTx.holdingId]
+                            if (newHoldingId != null) {
+                                repository.insertTransaction(oldTx.copy(id = 0, holdingId = newHoldingId))
+                            }
+                        }
+                        
                         backup.snapshots.forEach { repository.insertSnapshot(it.copy(id = 0)) }
                         syncPricesNow()
                         withContext(Dispatchers.Main) { onComplete(true) }
