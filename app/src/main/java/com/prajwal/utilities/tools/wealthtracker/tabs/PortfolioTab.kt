@@ -295,7 +295,7 @@ fun PortfolioTab(
             val filteredAssets = assets.filter { it.second.first > 0 || it.second.second > 0 }
             
             if (filteredAssets.isNotEmpty()) {
-                AssetBreakdownCard(filteredAssets)
+                AssetBreakdownCard(filteredAssets, totalCur)
             }
         }
 
@@ -417,7 +417,7 @@ fun PortfolioTab(
 }
 
 @Composable
-private fun AssetBreakdownCard(assets: List<Pair<String, Pair<Double, Double>>>) {
+private fun AssetBreakdownCard(assets: List<Pair<String, Pair<Double, Double>>>, totalCurrent: Double) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -439,7 +439,17 @@ private fun AssetBreakdownCard(assets: List<Pair<String, Pair<Double, Double>>>)
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        if (totalCurrent > 0) {
+                            val allocationPct = (cur / totalCurrent) * 100
+                            Text(
+                                "${String.format("%.1f", allocationPct)}% of total",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
