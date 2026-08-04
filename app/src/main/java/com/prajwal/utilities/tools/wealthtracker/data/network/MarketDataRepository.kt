@@ -96,6 +96,33 @@ class MarketDataRepository private constructor() {
         }
     }
 
+    suspend fun fetchDividends(ticker: String, exchange: String?): List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity> {
+        val suffix = when (exchange) {
+            "NSE" -> ".NS"
+            "BSE" -> ".BO"
+            else -> ""
+        }
+        val symbol = "$ticker$suffix"
+        val encodedSymbol = symbol.replace("^", "%5E")
+        
+        return try {
+            val url = "https://query2.finance.yahoo.com/v8/finance/chart/$encodedSymbol?events=div&range=10y&interval=1d"
+            val response = service.getYahooChart(url)
+            val eventsMap = response.chart?.result?.firstOrNull()?.events?.dividends
+            
+            eventsMap?.values?.map { div ->
+                com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity(
+                    symbol = ticker,
+                    exDate = div.date,
+                    amount = div.amount
+                )
+            } ?: emptyList()
+        } catch (e: Exception) {
+            Log.e("MarketDataRepo", "Error fetching dividends for $symbol", e)
+            emptyList()
+        }
+    }
+
     suspend fun fetchStockPrice(ticker: String, exchange: String?): AssetPrices? {
         if (ticker.startsWith("SGB", ignoreCase = true)) {
             return fetchSgbPrice(ticker, exchange)

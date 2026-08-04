@@ -36,4 +36,16 @@ interface HoldingsDao {
 
     @Query("SELECT * FROM transactions ORDER BY timestamp ASC")
     fun getAllTransactions(): Flow<List<TransactionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDividendEvents(events: List<DividendEventEntity>)
+
+    @Query("SELECT * FROM dividend_events ORDER BY exDate DESC")
+    fun getAllDividendEvents(): Flow<List<DividendEventEntity>>
+
+    @Query("SELECT * FROM dividend_events WHERE symbol = :symbol ORDER BY exDate DESC")
+    suspend fun getDividendEventsForSymbol(symbol: String): List<DividendEventEntity>
+
+    @Query("DELETE FROM dividend_events WHERE symbol = :symbol")
+    suspend fun deleteDividendEventsForSymbol(symbol: String)
 }

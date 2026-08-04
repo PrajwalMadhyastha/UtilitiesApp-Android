@@ -47,9 +47,8 @@ class WealthTrackerViewModel(
     private val _nifty50Prices = MutableStateFlow<AssetPrices?>(null)
     val nifty50Prices: StateFlow<AssetPrices?> = _nifty50Prices.asStateFlow()
 
-    init {
-        fetchNifty50()
-    }
+    private val _totalDividendsEarned = MutableStateFlow(0.0)
+    val totalDividendsEarned: StateFlow<Double> = _totalDividendsEarned.asStateFlow()
 
     private fun fetchNifty50() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -65,6 +64,18 @@ class WealthTrackerViewModel(
 
     val transactions: StateFlow<List<com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity>> = repository.getAllTransactions()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val dividendEvents: StateFlow<List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity>> = repository.getAllDividendEvents()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    init {
+        fetchNifty50()
+        viewModelScope.launch {
+            combine(holdings, transactions) { h, t -> Pair(h, t) }.collect {
+                calculateDividendsLocal()
+            }
+        }
+    }
 
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
@@ -275,6 +286,60 @@ class WealthTrackerViewModel(
 
     private val _syncMessage = MutableStateFlow("")
     val syncMessage: StateFlow<String> = _syncMessage.asStateFlow()
+
+    fun syncDividends(onMessage: ((String) -> Unit)? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _isSyncing.value = true
+            // Only equity-type instruments (Stock, ETF) can pay dividends.
+            // Mutual Funds (Growth/Direct), Gold, Debt, and Retirement assets are excluded.
+            val currentHoldings = holdings.value.filter {
+                !it.isManual && it.instrumentType in setOf("Stock", "ETF")
+            }
+            var successCount = 0
+            
+            for (holding in currentHoldings) {
+                val symbol = holding.identifier
+                val exchange = holding.exchange
+                
+                try {
+                    val newEvents = marketDataRepository.fetchDividends(symbol, exchange)
+                    if (newEvents.isNotEmpty()) {
+                        // Use upsert semantics (REPLACE on conflict) — no delete needed
+                        repository.insertDividendEvents(newEvents)
+                        successCount++
+                    }
+                } catch (e: Exception) {
+                    Log.e("WealthTracker", "Failed to sync dividends for $symbol", e)
+                }
+            }
+            
+            calculateDividendsLocal()
+            _isSyncing.value = false
+            withContext(Dispatchers.Main) {
+                onMessage?.invoke("Synced dividends for $successCount stocks")
+            }
+        }
+    }
+
+    private fun calculateDividendsLocal() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentHoldings = holdings.value
+            val cutoffMs = System.currentTimeMillis() - (365L * 24 * 60 * 60 * 1000L)
+            var total = 0.0
+            
+            for (holding in currentHoldings) {
+                val dbEvents = repository.getDividendEventsForSymbol(holding.identifier)
+                val calculated = com.prajwal.utilities.tools.wealthtracker.data.DividendCalculator
+                    .calculateDividendsEarned(holding.unitsHeld, dbEvents, cutoffMs)
+                if (calculated > 0) {
+                    Log.d("WealthTracker", "Dividends for ${holding.identifier}: events=${dbEvents.size}, units=${holding.unitsHeld}, calculated=$calculated")
+                }
+                total += calculated
+            }
+            Log.d("WealthTracker", "Total dividends earned (Last 12M): $total")
+            _totalDividendsEarned.value = total
+        }
+    }
 
     fun syncPricesNow(onMessage: ((String) -> Unit)? = null) {
         if (_isSyncing.value) return

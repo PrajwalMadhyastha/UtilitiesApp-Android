@@ -50,6 +50,7 @@ fun PortfolioTab(
     includeRetirement: Boolean,
     lastAutoSyncTimestamp: Long = 0L,
     nifty50Prices: AssetPrices? = null,
+    totalDividendsEarned: Double = 0.0,
     onToggleIncludeRetirement: () -> Unit,
     onSyncNow: () -> Unit,
     onSave: (AssetSnapshotEntity) -> Unit,
@@ -204,6 +205,22 @@ fun PortfolioTab(
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                    
+                    if (totalDividendsEarned > 0) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(
+                                "Dividends (Last 12M)",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                MilestoneCalculator.formatInrExact(totalDividendsEarned),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
                     Row(

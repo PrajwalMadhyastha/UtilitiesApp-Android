@@ -50,6 +50,7 @@ fun WealthTrackerScreen(
     val snapshots by viewModel.snapshots.collectAsState()
     val snapshotsChronological by viewModel.snapshotsChronological.collectAsState()
     val transactions by viewModel.transactions.collectAsState()
+    val dividendEvents by viewModel.dividendEvents.collectAsState()
     val calculatorSettings by viewModel.calculatorSettings.collectAsState()
     val holdings by viewModel.holdings.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
@@ -326,6 +327,15 @@ fun WealthTrackerScreen(
                                 showAutoSnapshotDialog = true
                             }
                         )
+                        DropdownMenuItem(
+                            text = { Text("Sync Dividends") },
+                            onClick = {
+                                showMenu = false
+                                viewModel.syncDividends { msg ->
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
                     }
                 }
             )
@@ -393,14 +403,17 @@ fun WealthTrackerScreen(
                     }
                 )
 
-                WealthTab.PORTFOLIO -> PortfolioTab(
-                    snapshots = snapshots,
-                    holdings = holdings,
-                    transactions = transactions,
-                    isSyncing = isSyncing,
-                    includeRetirement = includeRetirementInTotal,
-                    lastAutoSyncTimestamp = viewModel.lastAutoSyncTimestamp.collectAsState().value,
-                    nifty50Prices = nifty50Prices,
+                WealthTab.PORTFOLIO -> {
+                    val totalDividends by viewModel.totalDividendsEarned.collectAsState()
+                    PortfolioTab(
+                        snapshots = snapshots,
+                        holdings = holdings,
+                        transactions = transactions,
+                        isSyncing = isSyncing,
+                        includeRetirement = includeRetirementInTotal,
+                        lastAutoSyncTimestamp = viewModel.lastAutoSyncTimestamp.collectAsState().value,
+                        nifty50Prices = nifty50Prices,
+                        totalDividendsEarned = totalDividends,
                     onToggleIncludeRetirement = viewModel::toggleIncludeRetirementInTotal,
                     onSyncNow = {
                         viewModel.syncPricesNow { msg ->
@@ -412,11 +425,13 @@ fun WealthTrackerScreen(
                     },
                     onDelete = viewModel::deleteSnapshot
                 )
+                }
 
                 WealthTab.REPORTS -> ReportsTab(
                     snapshots = snapshots,
                     snapshotsChronological = snapshotsChronological,
                     transactions = transactions,
+                    dividendEvents = dividendEvents,
                     includeRetirement = includeRetirementInTotal,
                     holdings = holdings,
                     expectedReturnPercent = calculatorSettings.expectedReturnPercent,

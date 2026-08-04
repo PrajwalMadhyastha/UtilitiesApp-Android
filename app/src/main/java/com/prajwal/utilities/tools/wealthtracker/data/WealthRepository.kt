@@ -47,4 +47,16 @@ class WealthRepository(
 
     fun getAllTransactions(): Flow<List<com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity>> =
         holdingsDao.getAllTransactions()
+
+    suspend fun insertDividendEvents(events: List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity>) =
+        holdingsDao.insertDividendEvents(events)
+
+    fun getAllDividendEvents(): Flow<List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity>> =
+        holdingsDao.getAllDividendEvents()
+
+    suspend fun getDividendEventsForSymbol(symbol: String): List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity> =
+        holdingsDao.getDividendEventsForSymbol(symbol)
+
+    suspend fun deleteDividendEventsForSymbol(symbol: String) =
+        holdingsDao.deleteDividendEventsForSymbol(symbol)
 }

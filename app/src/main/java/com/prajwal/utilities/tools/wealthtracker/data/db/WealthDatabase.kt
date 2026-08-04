@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [AssetSnapshotEntity::class, HoldingEntity::class, TransactionEntity::class],
-    version = 7,
+    entities = [AssetSnapshotEntity::class, HoldingEntity::class, TransactionEntity::class, DividendEventEntity::class],
+    version = 9,
     // FIX #6: exportSchema = true lets Room generate JSON schema files under app/schemas/.
     // These are required for MigrationTestHelper — without them, every DB schema change
     // is unverifiable and risks silent data loss in production.
@@ -104,6 +104,32 @@ abstract class WealthDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `dividend_events` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `symbol` TEXT NOT NULL,
+                        `exDate` INTEGER NOT NULL,
+                        `amount` REAL NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_dividend_events_symbol` ON `dividend_events` (`symbol`)")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add a unique index on (symbol, exDate) to make upserts atomic per dividend event.
+                // This prevents duplicate rows if a sync is interrupted and retried.
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_dividend_events_symbol_exDate` ON `dividend_events` (`symbol`, `exDate`)"
+                )
+            }
+        }
+
         fun getDatabase(context: Context): WealthDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -111,7 +137,7 @@ abstract class WealthDatabase : RoomDatabase() {
                     WealthDatabase::class.java,
                     "wealth_tracker_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
                 INSTANCE = instance
