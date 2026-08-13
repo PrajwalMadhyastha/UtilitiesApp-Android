@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
@@ -46,6 +47,7 @@ fun HoldingsTab(
     onAddHolding: (HoldingEntity) -> Unit,
     onUpdateHolding: (HoldingEntity) -> Unit,
     onTopUpHolding: (HoldingEntity, Double, Double) -> Unit,
+    onSellHolding: (HoldingEntity, Double, Double) -> Unit,
     onDeleteHolding: (HoldingEntity) -> Unit,
     onSyncNow: () -> Unit
 ) {
@@ -53,6 +55,7 @@ fun HoldingsTab(
     var showAddManualDialog by remember { mutableStateOf(false) }
     var holdingToEdit by remember { mutableStateOf<HoldingEntity?>(null) }
     var holdingToTopUp by remember { mutableStateOf<HoldingEntity?>(null) }
+    var holdingToSell by remember { mutableStateOf<HoldingEntity?>(null) }
     // FIX #18: Guard deletion behind a confirmation dialog (mirrors snapshot deletion in PortfolioTab)
     var holdingToDelete by remember { mutableStateOf<HoldingEntity?>(null) }
 
@@ -84,6 +87,17 @@ fun HoldingsTab(
             onSave = { addedUnits, addedInvested ->
                 onTopUpHolding(holdingToTopUp!!, addedUnits, addedInvested)
                 holdingToTopUp = null
+            }
+        )
+    }
+
+    if (holdingToSell != null) {
+        SellDialog(
+            holding = holdingToSell!!,
+            onDismiss = { holdingToSell = null },
+            onSave = { unitsToSell, sellPrice ->
+                onSellHolding(holdingToSell!!, unitsToSell, sellPrice)
+                holdingToSell = null
             }
         )
     }
@@ -393,6 +407,7 @@ fun HoldingsTab(
                                 holding = holding,
                                 transactions = transactions.filter { it.holdingId == holding.id },
                                 onTopUp = { holdingToTopUp = holding },
+                                onSell = { holdingToSell = holding },
                                 onEdit = { holdingToEdit = holding },
                                 onDelete = { holdingToDelete = holding }
                             )
@@ -435,6 +450,7 @@ fun HoldingCard(
     holding: HoldingEntity, 
     transactions: List<com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity>,
     onTopUp: () -> Unit, 
+    onSell: () -> Unit,
     onEdit: () -> Unit, 
     onDelete: () -> Unit
 ) {
@@ -468,6 +484,9 @@ fun HoldingCard(
                     )
                 }
                 Row {
+                    IconButton(onClick = onSell) {
+                        Icon(Icons.Default.RemoveCircleOutline, contentDescription = "Sell", tint = MaterialTheme.colorScheme.error)
+                    }
                     IconButton(onClick = onTopUp) {
                         Icon(Icons.Default.AddCircleOutline, contentDescription = "Top Up", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -627,6 +646,71 @@ fun TopUpDialog(
                 }
             ) {
                 Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+fun SellDialog(
+    holding: HoldingEntity,
+    onDismiss: () -> Unit,
+    onSave: (Double, Double) -> Unit
+) {
+    var unitsStr by remember { mutableStateOf(holding.unitsHeld.toString()) }
+    var priceStr by remember { mutableStateOf(if (holding.latestPrice > 0) holding.latestPrice.toString() else "") }
+    var saveAttempted by remember { mutableStateOf(false) }
+    
+    val unitsError = saveAttempted && ((unitsStr.toDoubleOrNull() ?: 0.0) <= 0.0 || (unitsStr.toDoubleOrNull() ?: 0.0) > holding.unitsHeld)
+    val priceError = saveAttempted && (priceStr.toDoubleOrNull() ?: 0.0) <= 0.0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sell ${holding.name.ifBlank { holding.identifier }}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "You own ${holding.unitsHeld} units.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = unitsStr,
+                    onValueChange = { unitsStr = it; saveAttempted = false },
+                    label = { Text("Units to Sell") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    singleLine = true,
+                    isError = unitsError,
+                    supportingText = if (unitsError) {
+                        { Text(if ((unitsStr.toDoubleOrNull() ?: 0.0) > holding.unitsHeld) "Cannot sell more than you own" else "Enter a valid number") }
+                    } else null
+                )
+                OutlinedTextField(
+                    value = priceStr,
+                    onValueChange = { priceStr = it; saveAttempted = false },
+                    label = { Text("Selling Price (per unit)") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    singleLine = true,
+                    isError = priceError,
+                    supportingText = if (priceError) {{ Text("Enter a valid price greater than 0") }} else null
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    saveAttempted = true
+                    val units = unitsStr.toDoubleOrNull() ?: 0.0
+                    val price = priceStr.toDoubleOrNull() ?: 0.0
+                    if (units > 0 && units <= holding.unitsHeld && price > 0) {
+                        onSave(units, price)
+                    }
+                }
+            ) {
+                Text("Sell", color = MaterialTheme.colorScheme.error)
             }
         },
         dismissButton = {

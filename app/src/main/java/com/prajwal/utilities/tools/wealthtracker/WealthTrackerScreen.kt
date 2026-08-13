@@ -395,6 +395,7 @@ fun WealthTrackerScreen(
                     onAddHolding = viewModel::addHolding,
                     onUpdateHolding = viewModel::updateHolding,
                     onTopUpHolding = viewModel::topUpHolding,
+                    onSellHolding = viewModel::sellHolding,
                     onDeleteHolding = viewModel::deleteHolding,
                     onSyncNow = {
                         viewModel.syncPricesNow { msg ->

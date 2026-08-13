@@ -269,6 +269,37 @@ class WealthTrackerViewModel(
         }
     }
 
+    fun sellHolding(holding: HoldingEntity, unitsToSell: Double, sellPrice: Double) {
+        viewModelScope.launch {
+            if (unitsToSell <= 0 || holding.unitsHeld <= 0) return@launch
+            
+            val actualUnitsToSell = kotlin.math.min(unitsToSell, holding.unitsHeld)
+            
+            // Proportionally reduce invested amount to keep average buy price the same
+            val proportionSold = actualUnitsToSell / holding.unitsHeld
+            val amountToReduce = holding.investedAmount * proportionSold
+            
+            val updatedHolding = holding.copy(
+                unitsHeld = holding.unitsHeld - actualUnitsToSell,
+                investedAmount = kotlin.math.max(0.0, holding.investedAmount - amountToReduce)
+            )
+            
+            repository.updateHolding(updatedHolding)
+            
+            repository.insertTransaction(
+                com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity(
+                    holdingId = holding.id,
+                    timestamp = System.currentTimeMillis(),
+                    units = actualUnitsToSell,
+                    pricePerUnit = sellPrice,
+                    type = com.prajwal.utilities.tools.wealthtracker.data.db.TransactionType.SELL
+                )
+            )
+            
+            syncPricesNow()
+        }
+    }
+
     fun updateHolding(holding: HoldingEntity) {
         viewModelScope.launch {
             repository.updateHolding(holding)
