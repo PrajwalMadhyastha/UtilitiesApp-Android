@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
 import com.prajwal.utilities.tools.wealthtracker.data.db.HoldingEntity
 import com.prajwal.utilities.tools.wealthtracker.data.network.AssetSearchResult
 
@@ -23,6 +24,7 @@ fun AddHoldingDialog(
     var instrumentType by remember { mutableStateOf(holdingToEdit?.instrumentType ?: "Stock") }
     var identifier by remember { mutableStateOf(holdingToEdit?.identifier ?: "") }
     var exchange by remember { mutableStateOf(holdingToEdit?.exchange ?: "NSE") }
+    var isPassive by remember { mutableStateOf(holdingToEdit?.isPassive ?: false) }
 
     fun fmt(v: Double) = if (v > 0) { if (v % 1.0 == 0.0) v.toLong().toString() else v.toString() } else ""
     var unitsStr by remember { mutableStateOf(holdingToEdit?.let { fmt(it.unitsHeld) } ?: "") }
@@ -201,6 +203,12 @@ fun AddHoldingDialog(
                                             searchQuery = result.name
                                             identifier = result.identifier
                                             if (result.exchange != null) exchange = result.exchange
+                                            
+                                            val lc = result.name.lowercase()
+                                            isPassive = lc.contains("index") || lc.contains("etf") || 
+                                                       lc.contains("nifty") || lc.contains("sensex") || 
+                                                       lc.contains("equal weight") || lc.contains("next 50")
+                                            
                                             searchExpanded = false
                                         }
                                     )
@@ -208,6 +216,18 @@ fun AddHoldingDialog(
                             }
                         }
                     }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = isPassive,
+                        onCheckedChange = { isPassive = it }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Passive Fund (Index/ETF)", style = MaterialTheme.typography.bodyMedium)
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -256,7 +276,8 @@ fun AddHoldingDialog(
                             unitsHeld = u,
                             investedAmount = i,
                             latestPrice = holdingToEdit?.latestPrice ?: 0.0,
-                            lastUpdatedAt = holdingToEdit?.lastUpdatedAt ?: System.currentTimeMillis()
+                            lastUpdatedAt = holdingToEdit?.lastUpdatedAt ?: System.currentTimeMillis(),
+                            isPassive = isPassive
                         )
                         onSave(newHolding)
                     }

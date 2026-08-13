@@ -20,5 +20,6 @@ data class HoldingEntity(
     val previousClosePrice: Double = 0.0,
     val lastUpdatedAt: Long = System.currentTimeMillis(),
     val isManual: Boolean = false,
-    val expenseRatio: Double = 0.0
+    val expenseRatio: Double = 0.0,
+    val isPassive: Boolean = false
 )

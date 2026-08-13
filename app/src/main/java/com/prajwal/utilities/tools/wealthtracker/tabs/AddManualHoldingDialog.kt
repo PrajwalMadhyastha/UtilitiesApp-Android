@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
 import com.prajwal.utilities.tools.wealthtracker.data.db.HoldingEntity
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -18,6 +19,7 @@ fun AddManualHoldingDialog(
 ) {
     var instrumentType by remember { mutableStateOf(holdingToEdit?.instrumentType ?: "PF") }
     var name by remember { mutableStateOf(holdingToEdit?.name ?: "") }
+    var isPassive by remember { mutableStateOf(holdingToEdit?.isPassive ?: false) }
     
     fun fmt(v: Double) = if (v > 0) { if (v % 1.0 == 0.0) v.toLong().toString() else v.toString() } else ""
     var investedStr by remember { mutableStateOf(holdingToEdit?.let { fmt(it.investedAmount) } ?: "") }
@@ -73,6 +75,18 @@ fun AddManualHoldingDialog(
                     supportingText = if (nameError) { { Text("Required") } } else null
                 )
 
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = isPassive,
+                        onCheckedChange = { isPassive = it }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Passive Fund (Index/ETF)", style = MaterialTheme.typography.bodyMedium)
+                }
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
                         value = investedStr,
@@ -117,7 +131,8 @@ fun AddManualHoldingDialog(
                             investedAmount = i,
                             latestPrice = c,
                             lastUpdatedAt = System.currentTimeMillis(),
-                            isManual = true
+                            isManual = true,
+                            isPassive = isPassive
                         )
                         onSave(newHolding)
                     }

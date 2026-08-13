@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [AssetSnapshotEntity::class, HoldingEntity::class, TransactionEntity::class, DividendEventEntity::class],
-    version = 9,
+    version = 10,
     // FIX #6: exportSchema = true lets Room generate JSON schema files under app/schemas/.
     // These are required for MigrationTestHelper — without them, every DB schema change
     // is unverifiable and risks silent data loss in production.
@@ -130,6 +130,27 @@ abstract class WealthDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add the isPassive column
+                db.execSQL("ALTER TABLE `holdings` ADD COLUMN `isPassive` INTEGER NOT NULL DEFAULT 0")
+                
+                // Auto-categorize existing holdings based on name heuristics
+                db.execSQL(
+                    """
+                    UPDATE `holdings`
+                    SET `isPassive` = 1
+                    WHERE `name` LIKE '%Index%'
+                       OR `name` LIKE '%ETF%'
+                       OR `name` LIKE '%Nifty%'
+                       OR `name` LIKE '%Sensex%'
+                       OR `name` LIKE '%Equal Weight%'
+                       OR `name` LIKE '%Next 50%'
+                    """.trimIndent()
+                )
+            }
+        }
+
         fun getDatabase(context: Context): WealthDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -137,7 +158,10 @@ abstract class WealthDatabase : RoomDatabase() {
                     WealthDatabase::class.java,
                     "wealth_tracker_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, 
+                    MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
+                )
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
                 INSTANCE = instance
