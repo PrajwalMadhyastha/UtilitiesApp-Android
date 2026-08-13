@@ -118,9 +118,10 @@ class WealthTrackerViewModel(
     val calculatorSettings: StateFlow<CalculatorSettings> = combine(
         prefs.monthlyInvestment,
         prefs.annualStepupPercent,
+        prefs.stepupMonth,
         prefs.expectedReturnPercent
-    ) { monthly, stepup, returns ->
-        CalculatorSettings(monthly, stepup, returns)
+    ) { monthly, stepup, stepupMonth, returns ->
+        CalculatorSettings(monthly, stepup, stepupMonth, returns)
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5000),
@@ -424,6 +425,11 @@ class WealthTrackerViewModel(
     /** Update annual step-up % setting. */
     fun updateAnnualStepup(percent: Double) {
         viewModelScope.launch { prefs.updateAnnualStepup(percent) }
+    }
+
+    /** Update step-up month setting. */
+    fun updateStepupMonth(month: Int) {
+        viewModelScope.launch { prefs.updateStepupMonth(month) }
     }
 
     /** Update expected annual return % setting. */

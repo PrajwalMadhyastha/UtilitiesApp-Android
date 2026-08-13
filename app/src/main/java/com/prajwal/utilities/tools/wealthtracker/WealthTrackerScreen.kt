@@ -443,6 +443,7 @@ fun WealthTrackerScreen(
                     settings = calculatorSettings,
                     onMonthlyInvestmentChange = viewModel::updateMonthlyInvestment,
                     onStepupChange = viewModel::updateAnnualStepup,
+                    onStepupMonthChange = viewModel::updateStepupMonth,
                     onReturnChange = viewModel::updateExpectedReturn
                 )
             }

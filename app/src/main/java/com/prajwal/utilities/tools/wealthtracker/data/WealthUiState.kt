@@ -5,6 +5,7 @@ import com.prajwal.utilities.tools.wealthtracker.data.db.AssetSnapshotEntity
 data class CalculatorSettings(
     val monthlyInvestment: Double = WealthPreferences.DEFAULT_MONTHLY_INVESTMENT,
     val annualStepupPercent: Double = WealthPreferences.DEFAULT_ANNUAL_STEPUP_PERCENT,
+    val stepupMonth: Int = WealthPreferences.DEFAULT_STEPUP_MONTH,
     val expectedReturnPercent: Double = WealthPreferences.DEFAULT_EXPECTED_RETURN_PERCENT
 )
 

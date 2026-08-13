@@ -47,12 +47,15 @@ object MilestoneCalculator {
         currentPortfolioValue: Double,
         monthlySip: Double,
         annualStepupPct: Double,
+        stepupMonth: Int = 4,
         annualReturnPct: Double,
         targets: List<Double> = listOf(1_00_00_000.0, 5_00_00_000.0, 10_00_00_000.0),
         projectionYears: Int = 30
     ): List<MilestoneResult> {
         val monthlyRate = (annualReturnPct / 100) / 12
         val stepupMultiplier = 1 + annualStepupPct / 100
+
+        val currentRealMonth = java.util.Calendar.getInstance().get(java.util.Calendar.MONTH) + 1 // 1-indexed
 
         // Build month-by-month projection
         val monthlyValues = mutableListOf<Double>()
@@ -64,8 +67,9 @@ object MilestoneCalculator {
             portfolioValue = (portfolioValue + currentMonthlySip) * (1 + monthlyRate)
             monthlyValues.add(portfolioValue)
 
-            // Step up SIP at start of each new year
-            if (month % 12 == 0) {
+            // Step up SIP when we hit the configured step-up month
+            val simulatedMonth = (currentRealMonth - 1 + month) % 12 + 1
+            if (simulatedMonth == stepupMonth) {
                 currentMonthlySip *= stepupMultiplier
             }
         }
