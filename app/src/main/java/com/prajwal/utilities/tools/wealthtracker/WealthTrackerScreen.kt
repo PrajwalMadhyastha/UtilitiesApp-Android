@@ -441,6 +441,7 @@ fun WealthTrackerScreen(
                 WealthTab.MILESTONES -> MilestonesTab(
                     latestSnapshot = snapshots.firstOrNull(),
                     settings = calculatorSettings,
+                    includeRetirement = includeRetirementInTotal,
                     onMonthlyInvestmentChange = viewModel::updateMonthlyInvestment,
                     onStepupChange = viewModel::updateAnnualStepup,
                     onStepupMonthChange = viewModel::updateStepupMonth,

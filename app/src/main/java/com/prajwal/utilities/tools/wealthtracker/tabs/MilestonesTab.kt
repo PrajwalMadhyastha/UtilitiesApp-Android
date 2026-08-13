@@ -37,6 +37,7 @@ private val milestoneTargets = listOf(
 fun MilestonesTab(
     latestSnapshot: AssetSnapshotEntity?,
     settings: CalculatorSettings,
+    includeRetirement: Boolean,
     onMonthlyInvestmentChange: (Double) -> Unit,
     onStepupChange: (Double) -> Unit,
     onStepupMonthChange: (Int) -> Unit,
@@ -74,8 +75,8 @@ fun MilestonesTab(
         return
     }
 
-    val currentPortfolioValue = latestSnapshot.totalCurrent
-    val totalInvested = latestSnapshot.totalInvested
+    val currentPortfolioValue = latestSnapshot.getTotalCurrent(includeRetirement)
+    val totalInvested = latestSnapshot.getTotalInvested(includeRetirement)
 
 
     var monthlyText by remember(settings.monthlyInvestment) {
