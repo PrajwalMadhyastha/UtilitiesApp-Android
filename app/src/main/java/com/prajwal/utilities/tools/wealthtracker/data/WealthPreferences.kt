@@ -17,7 +17,7 @@ val Context.wealthDataStore: DataStore<Preferences> by preferencesDataStore(name
  * DataStore-backed preferences for the milestone calculator settings.
  * All three fields are independently updatable at any time.
  */
-class WealthPreferences(private val context: Context) {
+class WealthPreferences(val context: Context) {
 
     companion object {
         val MONTHLY_INVESTMENT = doublePreferencesKey("monthly_investment")

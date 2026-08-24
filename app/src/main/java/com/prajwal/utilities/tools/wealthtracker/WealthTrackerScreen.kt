@@ -178,6 +178,20 @@ fun WealthTrackerScreen(
     val currentIsAuthenticated by rememberUpdatedState(isAuthenticated)
     val currentIsBiometricEnabled by rememberUpdatedState(isBiometricEnabled)
 
+    var showSyncStatusScreen by remember { mutableStateOf(false) }
+
+    if (showSyncStatusScreen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showSyncStatusScreen = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            com.prajwal.utilities.tools.wealthtracker.components.SyncStatusScreen(
+                viewModel = viewModel,
+                onNavigateBack = { showSyncStatusScreen = false }
+            )
+        }
+    }
+
     // Observe lifecycle to reset authentication on background and prompt on foreground
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -319,6 +333,13 @@ fun WealthTrackerScreen(
                             onClick = {
                                 showMenu = false
                                 importLauncher.launch(arrayOf("application/json", "*/*"))
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Price Sync Status") },
+                            onClick = {
+                                showMenu = false
+                                showSyncStatusScreen = true
                             }
                         )
                         DropdownMenuItem(
