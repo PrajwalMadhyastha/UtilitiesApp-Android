@@ -1,6 +1,7 @@
 package com.prajwal.utilities.tools.wealthtracker.worker
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.prajwal.utilities.tools.wealthtracker.data.db.WealthDatabase
@@ -21,16 +22,27 @@ class PortfolioSyncWorker(
             val marketDataRepo = MarketDataRepository.getInstance()
 
             val holdings = holdingsDao.getAllHoldings().first()
+            Log.i("WealthTrackerSync", "=== PortfolioSyncWorker: Starting Daily 6 AM Sync (Total holdings: ${holdings.size}) ===")
+            var successCount = 0
+            var failedCount = 0
+            var skippedCount = 0
 
-            for (holding in holdings) {
-                if (holding.isManual) continue
-
-                if (holding.latestPrice > 0.0 && MarketDataRepository.shouldSkipSync(holding.lastUpdatedAt)) {
+            for ((index, holding) in holdings.withIndex()) {
+                if (holding.isManual) {
+                    skippedCount++
+                    Log.d("WealthTrackerSync", "Worker: [${index + 1}/${holdings.size}] Skipping manual holding: '${holding.name}'")
                     continue
                 }
 
+                if (holding.latestPrice > 0.0 && MarketDataRepository.shouldSkipSync(holding.lastUpdatedAt)) {
+                    skippedCount++
+                    Log.d("WealthTrackerSync", "Worker: [${index + 1}/${holdings.size}] Skipping recently synced holding: '${holding.name}'")
+                    continue
+                }
+
+                Log.d("WealthTrackerSync", "Worker: [${index + 1}/${holdings.size}] Syncing ${holding.instrumentType}: '${holding.name}' (${holding.identifier})")
                 val prices = if (holding.instrumentType == "MF") {
-                    marketDataRepo.fetchMfNav(holding.identifier)
+                    marketDataRepo.fetchMfNav(holding.identifier, holding.name)
                 } else {
                     marketDataRepo.fetchStockPrice(holding.identifier, holding.exchange)
                 }
@@ -41,8 +53,15 @@ class PortfolioSyncWorker(
                         price = prices.latestPrice,
                         previousClosePrice = prices.previousClosePrice
                     )
+                    successCount++
+                    val dateInfo = prices.asOfDate?.let { " [As of $it]" } ?: ""
+                    Log.i("WealthTrackerSync", "Worker: ✓ Updated '${holding.name}' -> ₹${prices.latestPrice}$dateInfo")
+                } else {
+                    failedCount++
+                    Log.e("WealthTrackerSync", "Worker: ✗ Failed to update '${holding.name}' (${holding.identifier})")
                 }
             }
+            Log.i("WealthTrackerSync", "=== PortfolioSyncWorker Complete: $successCount updated, $failedCount failed, $skippedCount skipped ===")
 
 
             val prefs = com.prajwal.utilities.tools.wealthtracker.data.WealthPreferences(applicationContext)

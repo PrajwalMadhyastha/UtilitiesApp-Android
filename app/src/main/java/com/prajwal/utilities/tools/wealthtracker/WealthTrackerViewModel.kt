@@ -68,12 +68,17 @@ class WealthTrackerViewModel(
     val dividendEvents: StateFlow<List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity>> = repository.getAllDividendEvents()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    private var dividendCalcJob: kotlinx.coroutines.Job? = null
+
     init {
         fetchNifty50()
         viewModelScope.launch {
-            combine(holdings, transactions) { h, t -> Pair(h, t) }.collect {
-                calculateDividendsLocal()
-            }
+            @OptIn(FlowPreview::class)
+            combine(holdings, transactions) { h, t -> Pair(h, t) }
+                .debounce(1000)
+                .collect { (currentHoldings, _) ->
+                    calculateDividendsLocal(currentHoldings)
+                }
         }
     }
 
@@ -353,22 +358,20 @@ class WealthTrackerViewModel(
         }
     }
 
-    private fun calculateDividendsLocal() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val currentHoldings = holdings.value
+    private fun calculateDividendsLocal(currentHoldings: List<HoldingEntity> = holdings.value) {
+        dividendCalcJob?.cancel()
+        dividendCalcJob = viewModelScope.launch(Dispatchers.IO) {
             val cutoffMs = System.currentTimeMillis() - (365L * 24 * 60 * 60 * 1000L)
             var total = 0.0
+            val eligibleHoldings = currentHoldings.filter { !it.isManual && it.instrumentType in setOf("Stock", "ETF") }
             
-            for (holding in currentHoldings) {
+            for (holding in eligibleHoldings) {
                 val dbEvents = repository.getDividendEventsForSymbol(holding.identifier)
                 val calculated = com.prajwal.utilities.tools.wealthtracker.data.DividendCalculator
                     .calculateDividendsEarned(holding.unitsHeld, dbEvents, cutoffMs)
-                if (calculated > 0) {
-                    Log.d("WealthTracker", "Dividends for ${holding.identifier}: events=${dbEvents.size}, units=${holding.unitsHeld}, calculated=$calculated")
-                }
                 total += calculated
             }
-            Log.d("WealthTracker", "Total dividends earned (Last 12M): $total")
+            Log.d("WealthTracker", "Recalculated 12M dividends: ₹$total across ${eligibleHoldings.size} dividend-eligible holdings")
             _totalDividendsEarned.value = total
         }
     }
@@ -380,11 +383,13 @@ class WealthTrackerViewModel(
             _syncProgress.value = 0f
             _syncMessage.value = "Starting sync..."
             val startTime = System.currentTimeMillis()
+            Log.i("WealthTrackerSync", "=== Starting Portfolio Price Sync (Manual/UI Trigger) ===")
             try {
                 fetchNifty50()
                 val currentHoldings = holdings.value
-                val allHoldingsSynced = currentHoldings.isNotEmpty() && currentHoldings.all { it.latestPrice > 0.0 && (it.instrumentType != "MF" || it.expenseRatio > 0.0) }
                 var skippedCount = 0
+                var successCount = 0
+                var failedCount = 0
                 var anyExpenseRatioFetchFailed = false
 
                 val totalHoldings = currentHoldings.size
@@ -394,19 +399,28 @@ class WealthTrackerViewModel(
 
                     if (holding.isManual) {
                         skippedCount++
+                        Log.d("WealthTrackerSync", "[${index + 1}/$totalHoldings] Skipping manual holding: '${holding.name}'")
                         return@forEachIndexed
                     }
-                    
-                    // For manual syncs, we bypass the MarketDataRepository.shouldSkipSync check
-                    // The PortfolioSyncWorker will still respect it for background auto-syncs.
+
+                    Log.d("WealthTrackerSync", "[${index + 1}/$totalHoldings] Syncing ${holding.instrumentType}: '${holding.name}' (ID: ${holding.identifier})")
 
                     val prices = if (holding.instrumentType == "MF") {
-                        val fetchedPrices = marketDataRepository.fetchMfNav(holding.identifier)
-                        val expenseRatio = marketDataRepository.fetchMfExpenseRatio(holding.name, holding.identifier)
-                        if (expenseRatio == null) {
-                            anyExpenseRatioFetchFailed = true
-                        } else if (expenseRatio > 0.0 && expenseRatio != holding.expenseRatio) {
-                            repository.updateHolding(holding.copy(expenseRatio = expenseRatio))
+                        val fetchedPrices = marketDataRepository.fetchMfNav(holding.identifier, holding.name)
+                        // Fetch expense ratio in background if missing
+                        if (holding.expenseRatio <= 0.0) {
+                            try {
+                                val expenseRatio = marketDataRepository.fetchMfExpenseRatio(holding.name, holding.identifier)
+                                if (expenseRatio == null) {
+                                    anyExpenseRatioFetchFailed = true
+                                } else if (expenseRatio > 0.0 && expenseRatio != holding.expenseRatio) {
+                                    repository.updateHolding(holding.copy(expenseRatio = expenseRatio))
+                                    Log.d("WealthTrackerSync", "Updated expense ratio for '${holding.name}': $expenseRatio%")
+                                }
+                            } catch (e: Exception) {
+                                Log.w("WealthTrackerSync", "Failed to fetch expense ratio for '${holding.name}'", e)
+                                anyExpenseRatioFetchFailed = true
+                            }
                         }
                         fetchedPrices
                     } else {
@@ -419,12 +433,21 @@ class WealthTrackerViewModel(
                             price = prices.latestPrice,
                             previousClosePrice = prices.previousClosePrice
                         )
+                        successCount++
+                        val dateInfo = prices.asOfDate?.let { " [As of $it]" } ?: ""
+                        Log.i("WealthTrackerSync", "✓ Updated '${holding.name}' -> Price: ₹${prices.latestPrice}$dateInfo, Prev Close: ₹${prices.previousClosePrice}")
+                    } else {
+                        failedCount++
+                        Log.e("WealthTrackerSync", "✗ Failed to update prices for '${holding.name}' (Type: ${holding.instrumentType}, Identifier: ${holding.identifier})")
                     }
                 }
                 
                 _syncProgress.value = 1f
                 _syncMessage.value = "Sync complete"
                 _expenseRatioSyncFailed.value = anyExpenseRatioFetchFailed
+
+                val elapsedTime = System.currentTimeMillis() - startTime
+                Log.i("WealthTrackerSync", "=== Sync Complete in ${elapsedTime}ms: $successCount updated, $failedCount failed, $skippedCount skipped ===")
 
                 if (currentHoldings.isNotEmpty() && skippedCount == currentHoldings.size) {
                     withContext(Dispatchers.Main) {

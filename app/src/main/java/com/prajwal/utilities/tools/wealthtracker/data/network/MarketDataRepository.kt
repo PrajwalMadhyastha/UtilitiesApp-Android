@@ -14,7 +14,8 @@ data class AssetSearchResult(
 
 data class AssetPrices(
     val latestPrice: Double,
-    val previousClosePrice: Double
+    val previousClosePrice: Double,
+    val asOfDate: String? = null
 )
 
 // FIX #2: MarketDataRepository is now a singleton.
@@ -35,6 +36,8 @@ class MarketDataRepository private constructor() {
 
         // Shared HTTP infrastructure — built once, reused everywhere.
         val sharedOkHttpClient: okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
             .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
@@ -78,20 +81,49 @@ class MarketDataRepository private constructor() {
     private val service = retrofit.create(MarketDataService::class.java)
 
 
-    suspend fun fetchMfNav(schemeCode: String): AssetPrices? {
-        if (schemeCode.startsWith("SGB", ignoreCase = true)) {
-            return fetchSgbPrice(schemeCode, null)
+    suspend fun fetchMfNav(schemeCode: String, fallbackFundName: String? = null): AssetPrices? {
+        val cleanCode = schemeCode.trim()
+        if (cleanCode.startsWith("SGB", ignoreCase = true)) {
+            return fetchSgbPrice(cleanCode, null)
         }
+
+        var numericCode = cleanCode.toIntOrNull()
+        if (numericCode == null) {
+            Log.w("MarketDataRepo", "MF identifier '$cleanCode' is non-numeric. Attempting search resolution...")
+            val searchQuery = fallbackFundName?.takeIf { it.isNotBlank() } ?: cleanCode
+            val results = searchAsset(searchQuery, isMf = true)
+            val matched = results.firstOrNull()
+            if (matched != null && matched.identifier.toIntOrNull() != null) {
+                numericCode = matched.identifier.toInt()
+                Log.i("MarketDataRepo", "Resolved MF '$searchQuery' -> AMFI Scheme Code $numericCode (${matched.name})")
+            } else {
+                Log.e("MarketDataRepo", "Could not resolve AMFI schemeCode for identifier '$cleanCode'")
+                return null
+            }
+        }
+
         return try {
-            val response = service.getMfNav("https://api.mfapi.in/mf/$schemeCode")
+            val url = "https://api.mfapi.in/mf/$numericCode"
+            Log.d("MarketDataRepo", "Fetching MF NAV from $url")
+            val response = service.getMfNav(url)
             val navs = response.data ?: emptyList()
             if (navs.isNotEmpty()) {
-                val latest = navs[0].nav?.toDoubleOrNull() ?: 0.0
-                val previous = if (navs.size > 1) navs[1].nav?.toDoubleOrNull() ?: latest else latest
-                AssetPrices(latest, previous)
-            } else null
+                val latestNavData = navs[0]
+                val latest = latestNavData.nav?.toDoubleOrNull() ?: 0.0
+                val latestDate = latestNavData.date ?: "N/A"
+
+                val prevNavData = if (navs.size > 1) navs[1] else latestNavData
+                val previous = prevNavData.nav?.toDoubleOrNull() ?: latest
+                val prevDate = prevNavData.date ?: latestDate
+
+                Log.i("MarketDataRepo", "MF [$numericCode]: latest NAV = ₹$latest (Date: $latestDate), prev NAV = ₹$previous (Date: $prevDate)")
+                AssetPrices(latest, previous, latestDate)
+            } else {
+                Log.w("MarketDataRepo", "MF [$numericCode]: Response returned empty NAV data list (status=${response.status})")
+                null
+            }
         } catch (e: Exception) {
-            Log.e("MarketDataRepo", "Error fetching MF NAV for $schemeCode", e)
+            Log.e("MarketDataRepo", "Error fetching MF NAV for schemeCode $numericCode: ${e.message}", e)
             null
         }
     }
@@ -136,13 +168,21 @@ class MarketDataRepository private constructor() {
         val encodedSymbol = symbol.replace("^", "%5E")
 
         return try {
-            val response = service.getYahooChart("https://query2.finance.yahoo.com/v8/finance/chart/$encodedSymbol")
+            val url = "https://query2.finance.yahoo.com/v8/finance/chart/$encodedSymbol"
+            Log.d("MarketDataRepo", "Fetching stock price from $url")
+            val response = service.getYahooChart(url)
             val meta = response.chart?.result?.firstOrNull()?.meta
             if (meta?.regularMarketPrice != null) {
-                AssetPrices(meta.regularMarketPrice, meta.chartPreviousClose ?: meta.regularMarketPrice)
-            } else null
+                val latest = meta.regularMarketPrice
+                val prev = meta.chartPreviousClose ?: latest
+                Log.i("MarketDataRepo", "Stock [$symbol]: latest price = ₹$latest, previous close = ₹$prev")
+                AssetPrices(latest, prev)
+            } else {
+                Log.w("MarketDataRepo", "Stock [$symbol]: response contained null price")
+                null
+            }
         } catch (e: Exception) {
-            Log.e("MarketDataRepo", "Error fetching stock price for $symbol", e)
+            Log.e("MarketDataRepo", "Error fetching stock price for $symbol: ${e.message}", e)
             null
         }
     }
@@ -324,27 +364,12 @@ class MarketDataRepository private constructor() {
     suspend fun fetchMfExpenseRatio(fundName: String, amfiCode: String? = null): Double? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
             var searchName = fundName
+            val desktopUa = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             
-            if (amfiCode != null) {
-                try {
-                    val mfapiReq = okhttp3.Request.Builder().url("https://api.mfapi.in/mf/$amfiCode").build()
-                    val mfapiResp = sharedOkHttpClient.newCall(mfapiReq).execute()
-                    if (mfapiResp.isSuccessful) {
-                        val body = mfapiResp.body()?.string() ?: ""
-                        val nameMatch = Regex(""""scheme_name"\s*:\s*"([^"]+)"""").find(body)
-                        if (nameMatch != null) {
-                            searchName = nameMatch.groupValues[1]
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e("MarketDataRepo", "Failed to fetch official AMFI name for $amfiCode", e)
-                }
-            }
-
             val encodedQuery = java.net.URLEncoder.encode(searchName, "UTF-8")
             val searchRequest = okhttp3.Request.Builder()
                 .url("https://www.moneycontrol.com/mccode/common/autosuggestion_solr.php?query=$encodedQuery&type=2&format=json")
-                .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10)")
+                .addHeader("User-Agent", desktopUa)
                 .addHeader("Accept", "application/json")
                 .build()
 
@@ -383,7 +408,7 @@ class MarketDataRepository private constructor() {
             val detailUrlStr = bestUrlStr ?: firstUrlStr ?: return@withContext null
             val detailRequest = okhttp3.Request.Builder()
                 .url(detailUrlStr)
-                .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 10)")
+                .addHeader("User-Agent", desktopUa)
                 .build()
 
             val detailResponse = sharedOkHttpClient.newCall(detailRequest).execute()
@@ -395,9 +420,13 @@ class MarketDataRepository private constructor() {
             val expenseRatioRegex = Regex(""""expenseRatio"\s*:\s*"([0-9.]+)\s*%?"""")
             val match = expenseRatioRegex.find(detailBody)
             
-            return@withContext match?.groupValues?.get(1)?.toDoubleOrNull()
+            val result = match?.groupValues?.get(1)?.toDoubleOrNull()
+            if (result != null) {
+                Log.d("MarketDataRepo", "Scraped expense ratio for '$fundName': $result%")
+            }
+            return@withContext result
         } catch (e: Exception) {
-            Log.e("MarketDataRepo", "MF Expense Ratio fetch exception for $fundName", e)
+            Log.e("MarketDataRepo", "MF Expense Ratio fetch exception for $fundName: ${e.message}", e)
             null
         }
     }
