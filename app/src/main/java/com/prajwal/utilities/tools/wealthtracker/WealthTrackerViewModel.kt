@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
@@ -188,6 +189,20 @@ class WealthTrackerViewModel(
 
     val lastAutoSyncTimestamp: StateFlow<Long> = prefs.lastAutoSyncTimestamp
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val dailyCategorySummary: StateFlow<com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary?> = prefs.dailyCategorySummaryJson
+        .map { json: String? ->
+            if (json.isNullOrBlank()) null
+            else {
+                try {
+                    val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+                    moshi.adapter(com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary::class.java).fromJson(json)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
         
     val hideValues: StateFlow<Boolean> = prefs.hideValues
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -445,6 +460,22 @@ class WealthTrackerViewModel(
                 _syncProgress.value = 1f
                 _syncMessage.value = "Sync complete"
                 _expenseRatioSyncFailed.value = anyExpenseRatioFetchFailed
+
+                // Initialize daily category summary once if not yet present
+                if (prefs.dailyCategorySummaryJson.first().isNullOrBlank() && currentHoldings.isNotEmpty()) {
+                    try {
+                        val initSummary = com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary.fromHoldings(
+                            holdings = holdings.value,
+                            includeRetirement = includeRetirementInTotal.value,
+                            timestamp = System.currentTimeMillis()
+                        )
+                        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+                        val json = moshi.adapter(com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary::class.java).toJson(initSummary)
+                        prefs.updateDailyCategorySummaryJson(json)
+                    } catch (e: Exception) {
+                        Log.e("WealthTrackerSync", "Failed to init dailyCategorySummary", e)
+                    }
+                }
 
                 val elapsedTime = System.currentTimeMillis() - startTime
                 Log.i("WealthTrackerSync", "=== Sync Complete in ${elapsedTime}ms: $successCount updated, $failedCount failed, $skippedCount skipped ===")

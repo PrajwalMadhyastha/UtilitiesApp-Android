@@ -65,7 +65,26 @@ class PortfolioSyncWorker(
 
 
             val prefs = com.prajwal.utilities.tools.wealthtracker.data.WealthPreferences(applicationContext)
-            prefs.updateLastAutoSyncTimestamp(System.currentTimeMillis())
+            val nowMs = System.currentTimeMillis()
+            prefs.updateLastAutoSyncTimestamp(nowMs)
+
+            // Save the daily morning category summary baseline (preserves exact previous day performance)
+            try {
+                val updatedHoldings = holdingsDao.getAllHoldings().first()
+                val includeRet = prefs.includeRetirementInTotal.first()
+                val dailySummary = com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary.fromHoldings(
+                    holdings = updatedHoldings,
+                    includeRetirement = includeRet,
+                    timestamp = nowMs
+                )
+                val moshi = com.squareup.moshi.Moshi.Builder().add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()
+                val json = moshi.adapter(com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary::class.java).toJson(dailySummary)
+                prefs.updateDailyCategorySummaryJson(json)
+                Log.i("WealthTrackerSync", "Worker: Saved DailyCategorySummary for ${dailySummary.categories.size} categories")
+            } catch (e: Exception) {
+                Log.e("WealthTrackerSync", "Worker: Error saving DailyCategorySummary", e)
+            }
+
             sendSyncNotification(applicationContext, holdings.count { !it.isManual })
 
             val autoSnapshotEnabled = prefs.autoSnapshotEnabled.first()

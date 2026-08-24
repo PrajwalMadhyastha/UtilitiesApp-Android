@@ -49,6 +49,7 @@ fun PortfolioTab(
     isSyncing: Boolean,
     includeRetirement: Boolean,
     lastAutoSyncTimestamp: Long = 0L,
+    dailyCategorySummary: com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary? = null,
     nifty50Prices: AssetPrices? = null,
     totalDividendsEarned: Double = 0.0,
     onToggleIncludeRetirement: () -> Unit,
@@ -255,39 +256,14 @@ fun PortfolioTab(
             }
         }
 
-        // ── Daily P/L card ─────────────
+        // ── Day's P/L by Category Table ─────────────
         item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (dailyGainPositive)
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                    else
-                        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "Today's P/L",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "${if (dailyGainPositive) "+" else "-"}${MilestoneCalculator.formatInrExact(abs(dailyGain), showDecimals = true)} (${String.format("%.2f", abs(dailyGainPct))}%)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = if (dailyGainPositive) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.error
-                    )
-                }
-            }
+            com.prajwal.utilities.tools.wealthtracker.components.DayPLBreakdownCard(
+                holdings = holdings,
+                dailySummary = dailyCategorySummary,
+                includeRetirement = includeRetirement,
+                initialExpanded = true
+            )
         }
 
         // ── NIFTY 50 Market Index card ─────────────

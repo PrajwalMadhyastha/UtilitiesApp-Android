@@ -61,6 +61,7 @@ fun WealthTrackerScreen(
     val autoSnapshotDayOfMonth by viewModel.autoSnapshotDayOfMonth.collectAsState()
     val includeRetirementInTotal by viewModel.includeRetirementInTotal.collectAsState()
     val nifty50Prices by viewModel.nifty50Prices.collectAsState()
+    val dailyCategorySummary by viewModel.dailyCategorySummary.collectAsState()
     var selectedTab by remember { mutableStateOf(WealthTab.PORTFOLIO) }
 
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
@@ -413,6 +414,7 @@ fun WealthTrackerScreen(
                         isSyncing = isSyncing,
                         includeRetirement = includeRetirementInTotal,
                         lastAutoSyncTimestamp = viewModel.lastAutoSyncTimestamp.collectAsState().value,
+                        dailyCategorySummary = dailyCategorySummary,
                         nifty50Prices = nifty50Prices,
                         totalDividendsEarned = totalDividends,
                     onToggleIncludeRetirement = viewModel::toggleIncludeRetirementInTotal,
