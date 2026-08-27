@@ -46,7 +46,7 @@ class MainActivity : FragmentActivity() {
 
         WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
             "WealthTrackerSync",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             syncRequest
         )
     }

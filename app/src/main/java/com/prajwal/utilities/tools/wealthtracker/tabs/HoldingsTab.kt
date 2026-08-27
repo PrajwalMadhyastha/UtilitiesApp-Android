@@ -203,7 +203,7 @@ fun HoldingsTab(
             Nifty50Card(prices = nifty50Prices, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
 
             // Filters
-            val assetClassFilters = listOf("All", "Equity", "Debt", "Gold", "Silver", "REITs")
+            val assetClassFilters = listOf("All", "Equity", "Arbitrage", "Debt", "Gold", "Silver", "REITs")
             val instrumentFilters = listOf("All", "Stocks", "Mutual Funds", "SGBs")
             
             var selectedAssetClass by remember { mutableStateOf("All") }

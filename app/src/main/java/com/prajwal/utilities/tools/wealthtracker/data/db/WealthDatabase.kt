@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [AssetSnapshotEntity::class, HoldingEntity::class, TransactionEntity::class, DividendEventEntity::class],
-    version = 10,
+    version = 11,
     // FIX #6: exportSchema = true lets Room generate JSON schema files under app/schemas/.
     // These are required for MigrationTestHelper — without them, every DB schema change
     // is unverifiable and risks silent data loss in production.
@@ -151,6 +151,13 @@ abstract class WealthDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `asset_snapshots` ADD COLUMN `arbitrageInvested` REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE `asset_snapshots` ADD COLUMN `arbitrageCurrent` REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
         fun getDatabase(context: Context): WealthDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -160,7 +167,8 @@ abstract class WealthDatabase : RoomDatabase() {
                 )
                 .addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, 
-                    MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10
+                    MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+                    MIGRATION_10_11
                 )
                 .fallbackToDestructiveMigrationOnDowngrade()
                 .build()

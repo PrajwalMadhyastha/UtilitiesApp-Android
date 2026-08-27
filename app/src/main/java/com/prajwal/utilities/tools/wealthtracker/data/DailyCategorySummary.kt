@@ -28,31 +28,37 @@ data class DailyCategorySummary(
                 list.add(computeItem("equity_mf", "Equity Mutual Funds", equityMfs))
             }
 
-            // 3. Debt (Funds / Bonds)
+            // 3. Arbitrage Funds
+            val arbitrageHoldings = holdings.filter { it.assetClass == "Arbitrage" }
+            if (arbitrageHoldings.isNotEmpty()) {
+                list.add(computeItem("arbitrage", "Arbitrage Funds", arbitrageHoldings))
+            }
+
+            // 4. Debt (Funds / Bonds)
             val debtHoldings = holdings.filter { it.assetClass == "Debt" }
             if (debtHoldings.isNotEmpty()) {
                 list.add(computeItem("debt", "Debt", debtHoldings))
             }
 
-            // 4. Gold (SGBs / Gold ETFs / Gold Funds)
+            // 5. Gold (SGBs / Gold ETFs / Gold Funds)
             val goldHoldings = holdings.filter { it.assetClass == "Gold" }
             if (goldHoldings.isNotEmpty()) {
                 list.add(computeItem("gold", "Gold", goldHoldings))
             }
 
-            // 5. Silver (Silver ETFs / Funds)
+            // 6. Silver (Silver ETFs / Funds)
             val silverHoldings = holdings.filter { it.assetClass == "Silver" }
             if (silverHoldings.isNotEmpty()) {
                 list.add(computeItem("silver", "Silver", silverHoldings))
             }
 
-            // 6. REITs
+            // 7. REITs
             val reitsHoldings = holdings.filter { it.assetClass == "REITs" }
             if (reitsHoldings.isNotEmpty()) {
                 list.add(computeItem("reits", "REITs", reitsHoldings))
             }
 
-            // 7. Retirement (PF / NPS / Other)
+            // 8. Retirement (PF / NPS / Other)
             if (includeRetirement) {
                 val retHoldings = holdings.filter { it.assetClass == "Retirement" }
                 if (retHoldings.isNotEmpty()) {
@@ -60,8 +66,8 @@ data class DailyCategorySummary(
                 }
             }
 
-            // 8. Any other custom category
-            val knownClasses = setOf("Equity", "Debt", "Gold", "Silver", "REITs", "Retirement")
+            // 9. Any other custom category
+            val knownClasses = setOf("Equity", "Arbitrage", "Debt", "Gold", "Silver", "REITs", "Retirement")
             val otherHoldings = holdings.filter { it.assetClass !in knownClasses }
             if (otherHoldings.isNotEmpty()) {
                 list.add(computeItem("other", "Other", otherHoldings))

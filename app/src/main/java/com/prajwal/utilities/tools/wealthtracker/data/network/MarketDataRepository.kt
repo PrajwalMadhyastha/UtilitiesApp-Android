@@ -41,6 +41,14 @@ class MarketDataRepository private constructor() {
             .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val request = original.newBuilder()
+                    .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
+                    .header("Accept", "*/*")
+                    .build()
+                chain.proceed(request)
+            }
             .build()
             
         fun shouldSkipSync(lastUpdatedAt: Long): Boolean {
@@ -128,13 +136,21 @@ class MarketDataRepository private constructor() {
         }
     }
 
-    suspend fun fetchDividends(ticker: String, exchange: String?): List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity> {
-        val suffix = when (exchange) {
-            "NSE" -> ".NS"
-            "BSE" -> ".BO"
-            else -> ""
+    private fun resolveYahooSymbol(ticker: String, exchange: String?): String {
+        val cleanTicker = ticker.trim()
+        if (cleanTicker.startsWith("^") || cleanTicker.contains(".")) {
+            return cleanTicker
         }
-        val symbol = "$ticker$suffix"
+        val suffix = when (exchange?.trim()?.uppercase()) {
+            "BSE" -> ".BO"
+            "NSE" -> ".NS"
+            else -> ".NS" // Default Indian equities to NSE
+        }
+        return "$cleanTicker$suffix"
+    }
+
+    suspend fun fetchDividends(ticker: String, exchange: String?): List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity> {
+        val symbol = resolveYahooSymbol(ticker, exchange)
         val encodedSymbol = symbol.replace("^", "%5E")
         
         return try {
@@ -159,12 +175,7 @@ class MarketDataRepository private constructor() {
         if (ticker.startsWith("SGB", ignoreCase = true)) {
             return fetchSgbPrice(ticker, exchange)
         }
-        val suffix = when (exchange) {
-            "NSE" -> ".NS"
-            "BSE" -> ".BO"
-            else -> ""
-        }
-        val symbol = "$ticker$suffix"
+        val symbol = resolveYahooSymbol(ticker, exchange)
         val encodedSymbol = symbol.replace("^", "%5E")
 
         return try {

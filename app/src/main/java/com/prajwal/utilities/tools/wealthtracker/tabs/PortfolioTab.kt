@@ -49,7 +49,6 @@ fun PortfolioTab(
     isSyncing: Boolean,
     includeRetirement: Boolean,
     lastAutoSyncTimestamp: Long = 0L,
-    dailyCategorySummary: com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary? = null,
     nifty50Prices: AssetPrices? = null,
     totalDividendsEarned: Double = 0.0,
     onToggleIncludeRetirement: () -> Unit,
@@ -64,6 +63,7 @@ fun PortfolioTab(
 
     // Calculate live totals from holdings
     val eqHoldings = holdings.filter { it.assetClass == "Equity" }
+    val abHoldings = holdings.filter { it.assetClass == "Arbitrage" }
     val gdHoldings = holdings.filter { it.assetClass == "Gold" }
     val dbHoldings = holdings.filter { it.assetClass == "Debt" }
     val slHoldings = holdings.filter { it.assetClass == "Silver" }
@@ -76,14 +76,15 @@ fun PortfolioTab(
     }
 
     val eqInv = calcInv(eqHoldings); val eqCur = calcCur(eqHoldings)
+    val abInv = calcInv(abHoldings); val abCur = calcCur(abHoldings)
     val gdInv = calcInv(gdHoldings); val gdCur = calcCur(gdHoldings)
     val dbInv = calcInv(dbHoldings); val dbCur = calcCur(dbHoldings)
     val slInv = calcInv(slHoldings); val slCur = calcCur(slHoldings)
     val rtInv = calcInv(rtHoldings); val rtCur = calcCur(rtHoldings)
     val retInv = calcInv(retHoldings); val retCur = calcCur(retHoldings)
 
-    val totalInv = eqInv + gdInv + dbInv + slInv + rtInv + if (includeRetirement) retInv else 0.0
-    val totalCur = eqCur + gdCur + dbCur + slCur + rtCur + if (includeRetirement) retCur else 0.0
+    val totalInv = eqInv + abInv + gdInv + dbInv + slInv + rtInv + if (includeRetirement) retInv else 0.0
+    val totalCur = eqCur + abCur + gdCur + dbCur + slCur + rtCur + if (includeRetirement) retCur else 0.0
     val gain = totalCur - totalInv
     val gainPositive = gain >= 0
 
@@ -260,7 +261,6 @@ fun PortfolioTab(
         item {
             com.prajwal.utilities.tools.wealthtracker.components.DayPLBreakdownCard(
                 holdings = holdings,
-                dailySummary = dailyCategorySummary,
                 includeRetirement = includeRetirement,
                 initialExpanded = true
             )
@@ -275,6 +275,7 @@ fun PortfolioTab(
         item {
             val assets = mutableListOf(
                 "Equity" to Pair(eqInv, eqCur),
+                "Arbitrage" to Pair(abInv, abCur),
                 "Gold" to Pair(gdInv, gdCur),
                 "Debt" to Pair(dbInv, dbCur),
                 "Silver" to Pair(slInv, slCur),
@@ -338,6 +339,7 @@ fun PortfolioTab(
                     onSave(
                         AssetSnapshotEntity(
                             equityInvested = eqInv, equityCurrent = eqCur,
+                            arbitrageInvested = abInv, arbitrageCurrent = abCur,
                             goldInvested = gdInv, goldCurrent = gdCur,
                             debtInvested = dbInv, debtCurrent = dbCur,
                             silverInvested = slInv, silverCurrent = slCur,
@@ -543,6 +545,7 @@ private fun SnapshotHistoryCard(
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                 val assets = listOf(
                     "Equity" to Pair(snapshot.equityInvested, snapshot.equityCurrent),
+                    "Arbitrage" to Pair(snapshot.arbitrageInvested, snapshot.arbitrageCurrent),
                     "Gold" to Pair(snapshot.goldInvested, snapshot.goldCurrent),
                     "Debt" to Pair(snapshot.debtInvested, snapshot.debtCurrent),
                     "Silver" to Pair(snapshot.silverInvested, snapshot.silverCurrent),

@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import android.content.ContentResolver
 import android.net.Uri
 import android.util.Log
@@ -197,20 +198,6 @@ class WealthTrackerViewModel(
 
     val lastAutoSyncTimestamp: StateFlow<Long> = prefs.lastAutoSyncTimestamp
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
-
-    val dailyCategorySummary: StateFlow<com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary?> = prefs.dailyCategorySummaryJson
-        .map { json: String? ->
-            if (json.isNullOrBlank()) null
-            else {
-                try {
-                    val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-                    moshi.adapter(com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary::class.java).fromJson(json)
-                } catch (e: Exception) {
-                    null
-                }
-            }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
         
     val hideValues: StateFlow<Boolean> = prefs.hideValues
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -412,24 +399,25 @@ class WealthTrackerViewModel(
             try {
                 fetchNifty50()
                 val currentHoldings = holdings.value
-                var skippedCount = 0
-                var successCount = 0
-                var failedCount = 0
-                var anyExpenseRatioFetchFailed = false
-                val itemReports = mutableListOf<com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport>()
-
                 val totalHoldings = currentHoldings.size
-                currentHoldings.forEachIndexed { index, holding ->
-                    _syncProgress.value = if (totalHoldings > 0) index.toFloat() / totalHoldings else 0f
-                    _syncMessage.value = "Updating ${holding.name}..."
+                var anyExpenseRatioFetchFailed = false
 
-                    if (holding.isManual) {
-                        skippedCount++
-                        val msg = "[${index + 1}/$totalHoldings] Skipping manual holding: '${holding.name}'"
-                        Log.d("WealthTrackerSync", msg)
-                        com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", msg)
-                        itemReports.add(
-                            com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                val semaphore = kotlinx.coroutines.sync.Semaphore(6)
+                val completedCounter = java.util.concurrent.atomic.AtomicInteger(0)
+                val successCounter = java.util.concurrent.atomic.AtomicInteger(0)
+                val failedCounter = java.util.concurrent.atomic.AtomicInteger(0)
+                val skippedCounter = java.util.concurrent.atomic.AtomicInteger(0)
+
+                val deferredReports = currentHoldings.mapIndexed { index, holding ->
+                    async(Dispatchers.IO) {
+                        if (holding.isManual) {
+                            skippedCounter.incrementAndGet()
+                            val msg = "[${index + 1}/$totalHoldings] Skipping manual holding: '${holding.name}'"
+                            Log.d("WealthTrackerSync", msg)
+                            com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", msg)
+                            val done = completedCounter.incrementAndGet()
+                            _syncProgress.value = if (totalHoldings > 0) done.toFloat() / totalHoldings else 0f
+                            return@async com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
                                 holdingId = holding.id,
                                 holdingName = holding.name,
                                 identifier = holding.identifier,
@@ -440,105 +428,96 @@ class WealthTrackerViewModel(
                                 previousClose = holding.previousClosePrice,
                                 errorMessage = "Manual holding"
                             )
-                        )
-                        return@forEachIndexed
-                    }
+                        }
 
-                    val syncMsg = "[${index + 1}/$totalHoldings] Syncing ${holding.instrumentType}: '${holding.name}' (ID: ${holding.identifier})"
-                    Log.d("WealthTrackerSync", syncMsg)
-                    com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", syncMsg)
+                        semaphore.withPermit {
+                            _syncMessage.value = "Updating ${holding.name}..."
+                            val syncMsg = "[${index + 1}/$totalHoldings] Syncing ${holding.instrumentType}: '${holding.name}' (ID: ${holding.identifier})"
+                            Log.d("WealthTrackerSync", syncMsg)
+                            com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", syncMsg)
 
-                    val prices = if (holding.instrumentType == "MF") {
-                        val fetchedPrices = marketDataRepository.fetchMfNav(holding.identifier, holding.name)
-                        // Fetch expense ratio in background if missing
-                        if (holding.expenseRatio <= 0.0) {
-                            try {
-                                val expenseRatio = marketDataRepository.fetchMfExpenseRatio(holding.name, holding.identifier)
-                                if (expenseRatio == null) {
-                                    anyExpenseRatioFetchFailed = true
-                                } else if (expenseRatio > 0.0 && expenseRatio != holding.expenseRatio) {
-                                    repository.updateHolding(holding.copy(expenseRatio = expenseRatio))
-                                    val expMsg = "Updated expense ratio for '${holding.name}': $expenseRatio%"
-                                    Log.d("WealthTrackerSync", expMsg)
-                                    com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", expMsg)
+                            val prices = if (holding.instrumentType == "MF") {
+                                val fetchedPrices = marketDataRepository.fetchMfNav(holding.identifier, holding.name)
+                                // Fetch expense ratio in background if missing
+                                if (holding.expenseRatio <= 0.0) {
+                                    try {
+                                        val expenseRatio = marketDataRepository.fetchMfExpenseRatio(holding.name, holding.identifier)
+                                        if (expenseRatio == null) {
+                                            anyExpenseRatioFetchFailed = true
+                                        } else if (expenseRatio > 0.0 && expenseRatio != holding.expenseRatio) {
+                                            repository.updateHolding(holding.copy(expenseRatio = expenseRatio))
+                                            val expMsg = "Updated expense ratio for '${holding.name}': $expenseRatio%"
+                                            Log.d("WealthTrackerSync", expMsg)
+                                            com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", expMsg)
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.w("WealthTrackerSync", "Failed to fetch expense ratio for '${holding.name}'", e)
+                                        com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("W", "Failed expense ratio: '${holding.name}': ${e.message}")
+                                        anyExpenseRatioFetchFailed = true
+                                    }
                                 }
-                            } catch (e: Exception) {
-                                Log.w("WealthTrackerSync", "Failed to fetch expense ratio for '${holding.name}'", e)
-                                com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("W", "Failed expense ratio: '${holding.name}': ${e.message}")
-                                anyExpenseRatioFetchFailed = true
+                                fetchedPrices
+                            } else {
+                                marketDataRepository.fetchStockPrice(holding.identifier, holding.exchange)
+                            }
+
+                            val done = completedCounter.incrementAndGet()
+                            _syncProgress.value = if (totalHoldings > 0) done.toFloat() / totalHoldings else 0f
+
+                            if (prices != null) {
+                                repository.updateHoldingPrice(
+                                    id = holding.id,
+                                    price = prices.latestPrice,
+                                    previousClosePrice = prices.previousClosePrice
+                                )
+                                successCounter.incrementAndGet()
+                                val dateInfo = prices.asOfDate?.let { " [As of $it]" } ?: ""
+                                val successMsg = "✓ Updated '${holding.name}' -> Price: ₹${prices.latestPrice}$dateInfo, Prev Close: ₹${prices.previousClosePrice}"
+                                Log.i("WealthTrackerSync", successMsg)
+                                com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("I", successMsg)
+                                com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                                    holdingId = holding.id,
+                                    holdingName = holding.name,
+                                    identifier = holding.identifier,
+                                    instrumentType = holding.instrumentType,
+                                    assetClass = holding.assetClass,
+                                    status = "SUCCESS",
+                                    price = prices.latestPrice,
+                                    previousClose = prices.previousClosePrice,
+                                    asOfDate = prices.asOfDate
+                                )
+                            } else {
+                                failedCounter.incrementAndGet()
+                                val failMsg = "✗ Failed to update prices for '${holding.name}' (Type: ${holding.instrumentType}, Identifier: ${holding.identifier})"
+                                Log.e("WealthTrackerSync", failMsg)
+                                com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("E", failMsg)
+                                com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                                    holdingId = holding.id,
+                                    holdingName = holding.name,
+                                    identifier = holding.identifier,
+                                    instrumentType = holding.instrumentType,
+                                    assetClass = holding.assetClass,
+                                    status = "FAILED",
+                                    price = holding.latestPrice,
+                                    previousClose = holding.previousClosePrice,
+                                    errorMessage = "Failed to fetch price from market API"
+                                )
                             }
                         }
-                        fetchedPrices
-                    } else {
-                        marketDataRepository.fetchStockPrice(holding.identifier, holding.exchange)
-                    }
-
-                    if (prices != null) {
-                        repository.updateHoldingPrice(
-                            id = holding.id,
-                            price = prices.latestPrice,
-                            previousClosePrice = prices.previousClosePrice
-                        )
-                        successCount++
-                        val dateInfo = prices.asOfDate?.let { " [As of $it]" } ?: ""
-                        val successMsg = "✓ Updated '${holding.name}' -> Price: ₹${prices.latestPrice}$dateInfo, Prev Close: ₹${prices.previousClosePrice}"
-                        Log.i("WealthTrackerSync", successMsg)
-                        com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("I", successMsg)
-                        itemReports.add(
-                            com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
-                                holdingId = holding.id,
-                                holdingName = holding.name,
-                                identifier = holding.identifier,
-                                instrumentType = holding.instrumentType,
-                                assetClass = holding.assetClass,
-                                status = "SUCCESS",
-                                price = prices.latestPrice,
-                                previousClose = prices.previousClosePrice,
-                                asOfDate = prices.asOfDate
-                            )
-                        )
-                    } else {
-                        failedCount++
-                        val failMsg = "✗ Failed to update prices for '${holding.name}' (Type: ${holding.instrumentType}, Identifier: ${holding.identifier})"
-                        Log.e("WealthTrackerSync", failMsg)
-                        com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("E", failMsg)
-                        itemReports.add(
-                            com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
-                                holdingId = holding.id,
-                                holdingName = holding.name,
-                                identifier = holding.identifier,
-                                instrumentType = holding.instrumentType,
-                                assetClass = holding.assetClass,
-                                status = "FAILED",
-                                price = holding.latestPrice,
-                                previousClose = holding.previousClosePrice,
-                                errorMessage = "Failed to fetch price from market API"
-                            )
-                        )
                     }
                 }
+
+                val itemReports = deferredReports.awaitAll()
                 
                 _syncProgress.value = 1f
                 _syncMessage.value = "Sync complete"
                 _expenseRatioSyncFailed.value = anyExpenseRatioFetchFailed
 
-                // Initialize daily category summary once if not yet present
-                if (prefs.dailyCategorySummaryJson.first().isNullOrBlank() && currentHoldings.isNotEmpty()) {
-                    try {
-                        val initSummary = com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary.fromHoldings(
-                            holdings = holdings.value,
-                            includeRetirement = includeRetirementInTotal.value,
-                            timestamp = System.currentTimeMillis()
-                        )
-                        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-                        val json = moshi.adapter(com.prajwal.utilities.tools.wealthtracker.data.DailyCategorySummary::class.java).toJson(initSummary)
-                        prefs.updateDailyCategorySummaryJson(json)
-                    } catch (e: Exception) {
-                        Log.e("WealthTrackerSync", "Failed to init dailyCategorySummary", e)
-                    }
-                }
-
                 val elapsedTime = System.currentTimeMillis() - startTime
+                val successCount = successCounter.get()
+                val failedCount = failedCounter.get()
+                val skippedCount = skippedCounter.get()
+
                 val finishMsg = "=== Sync Complete in ${elapsedTime}ms: $successCount updated, $failedCount failed, $skippedCount skipped ==="
                 Log.i("WealthTrackerSync", finishMsg)
                 com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("I", finishMsg)

@@ -28,7 +28,6 @@ import kotlin.math.abs
 @Composable
 fun DayPLBreakdownCard(
     holdings: List<HoldingEntity>,
-    dailySummary: DailyCategorySummary? = null,
     includeRetirement: Boolean = true,
     modifier: Modifier = Modifier,
     initialExpanded: Boolean = true
@@ -37,13 +36,9 @@ fun DayPLBreakdownCard(
     val rotationState by animateFloatAsState(targetValue = if (expanded) 180f else 0f, label = "arrow_rotation")
     val dateFmt = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
 
-    // Use persisted daily summary if available, otherwise compute from holdings
-    val effectiveSummary = remember(dailySummary, holdings, includeRetirement) {
-        if (dailySummary != null && dailySummary.categories.isNotEmpty()) {
-            dailySummary
-        } else {
-            DailyCategorySummary.fromHoldings(holdings, includeRetirement)
-        }
+    val effectiveSummary = remember(holdings, includeRetirement) {
+        val lastSyncTime = holdings.filter { !it.isManual && it.latestPrice > 0 }.maxOfOrNull { it.lastUpdatedAt } ?: 0L
+        DailyCategorySummary.fromHoldings(holdings, includeRetirement, timestamp = lastSyncTime)
     }
 
     val categories = effectiveSummary.categories

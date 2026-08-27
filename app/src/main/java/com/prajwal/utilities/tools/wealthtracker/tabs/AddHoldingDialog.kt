@@ -30,7 +30,7 @@ fun AddHoldingDialog(
     var unitsStr by remember { mutableStateOf(holdingToEdit?.let { fmt(it.unitsHeld) } ?: "") }
     var investedStr by remember { mutableStateOf(holdingToEdit?.let { fmt(it.investedAmount) } ?: "") }
 
-    val assetClasses = listOf("Equity", "Gold", "Debt", "Silver", "REITs")
+    val assetClasses = listOf("Equity", "Arbitrage", "Debt", "Gold", "Silver", "REITs")
     val instrumentTypes = listOf("Stock", "MF", "SGB")
     val exchanges = listOf("NSE", "BSE")
 
@@ -83,7 +83,13 @@ fun AddHoldingDialog(
                         assetClasses.forEach { ac ->
                             DropdownMenuItem(
                                 text = { Text(ac) },
-                                onClick = { assetClass = ac; assetExpanded = false }
+                                onClick = {
+                                    assetClass = ac
+                                    if (ac == "Arbitrage") {
+                                        instrumentType = "MF"
+                                    }
+                                    assetExpanded = false
+                                }
                             )
                         }
                     }

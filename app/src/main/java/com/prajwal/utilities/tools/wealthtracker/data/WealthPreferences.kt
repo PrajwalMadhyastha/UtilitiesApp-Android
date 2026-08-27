@@ -32,7 +32,6 @@ class WealthPreferences(val context: Context) {
         val LAST_AUTO_SYNC_TIMESTAMP = androidx.datastore.preferences.core.longPreferencesKey("last_auto_sync_timestamp")
         val HIDE_VALUES = booleanPreferencesKey("hide_values")
         val STEPUP_MONTH = androidx.datastore.preferences.core.intPreferencesKey("stepup_month")
-        val DAILY_CATEGORY_SUMMARY_JSON = stringPreferencesKey("daily_category_summary_json")
 
         // Defaults
         const val DEFAULT_MONTHLY_INVESTMENT = 10000.0   // ₹10,000/month
@@ -83,19 +82,6 @@ class WealthPreferences(val context: Context) {
 
     val lastAutoSyncTimestamp: Flow<Long> = context.wealthDataStore.data
         .map { it[LAST_AUTO_SYNC_TIMESTAMP] ?: 0L }
-
-    val dailyCategorySummaryJson: Flow<String?> = context.wealthDataStore.data
-        .map { it[DAILY_CATEGORY_SUMMARY_JSON] }
-
-    suspend fun updateDailyCategorySummaryJson(json: String?) {
-        context.wealthDataStore.edit {
-            if (json != null) {
-                it[DAILY_CATEGORY_SUMMARY_JSON] = json
-            } else {
-                it.remove(DAILY_CATEGORY_SUMMARY_JSON)
-            }
-        }
-    }
 
     suspend fun updateMonthlyInvestment(amount: Double) {
         context.wealthDataStore.edit { it[MONTHLY_INVESTMENT] = amount }

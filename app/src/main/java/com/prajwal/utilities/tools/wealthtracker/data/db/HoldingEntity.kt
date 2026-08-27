@@ -9,7 +9,7 @@ import com.squareup.moshi.JsonClass
 data class HoldingEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0,
-    val assetClass: String, // "Equity", "Gold", "Debt", "Silver", "REITs"
+    val assetClass: String, // "Equity", "Arbitrage", "Gold", "Debt", "Silver", "REITs", "Retirement"
     val instrumentType: String, // "Stock", "MF", "SGB"
     val name: String, // Human readable name
     val identifier: String, // Ticker or Scheme Code

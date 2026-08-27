@@ -22,6 +22,7 @@ data class AssetClass(
 fun AssetSnapshotEntity.toAssetClasses(includeRetirement: Boolean = true): List<AssetClass> {
     val classes = mutableListOf(
         AssetClass("Equity", equityInvested, equityCurrent),
+        AssetClass("Arbitrage", arbitrageInvested, arbitrageCurrent),
         AssetClass("Gold", goldInvested, goldCurrent),
         AssetClass("Debt", debtInvested, debtCurrent),
         AssetClass("Silver", silverInvested, silverCurrent),

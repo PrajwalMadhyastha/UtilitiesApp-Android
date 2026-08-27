@@ -21,6 +21,7 @@ import com.prajwal.utilities.tools.wealthtracker.data.MilestoneCalculator
 
 val assetColors = listOf(
     Color(0xFF6366F1), // Equity — indigo
+    Color(0xFF8B5CF6), // Arbitrage — purple
     Color(0xFFF59E0B), // Gold — amber
     Color(0xFF10B981), // Debt — emerald
     Color(0xFF94A3B8), // Silver — slate

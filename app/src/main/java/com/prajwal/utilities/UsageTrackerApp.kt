@@ -56,7 +56,7 @@ class UsageTrackerApp : Application() {
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "WealthTrackerSync",
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             syncRequest
         )
         Log.d(TAG, "Portfolio sync worker scheduled (Daily 6 AM, initial delay $initialDelayMillis ms)")
