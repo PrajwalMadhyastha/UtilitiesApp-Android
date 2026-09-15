@@ -23,6 +23,9 @@ class WealthRepository(
     /** Insert a new timestamped snapshot. */
     suspend fun insertSnapshot(snapshot: AssetSnapshotEntity) = dao.insertSnapshot(snapshot)
 
+    /** Update an existing snapshot. */
+    suspend fun updateSnapshot(snapshot: AssetSnapshotEntity) = dao.updateSnapshot(snapshot)
+
     /** Delete a snapshot (accidental entry removal). */
     suspend fun deleteSnapshot(snapshot: AssetSnapshotEntity) = dao.deleteSnapshot(snapshot)
 

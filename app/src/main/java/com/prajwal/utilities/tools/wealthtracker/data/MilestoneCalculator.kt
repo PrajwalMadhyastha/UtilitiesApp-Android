@@ -111,8 +111,8 @@ object MilestoneCalculator {
         val isNegative = amount < 0
         val absAmount = kotlin.math.abs(amount)
         val formatted = when {
-            absAmount >= 1_00_00_000 -> "₹%.2f Cr".format(absAmount / 1_00_00_000)
-            absAmount >= 1_00_000 -> "₹%.1f L".format(absAmount / 1_00_00_000)
+            absAmount >= 1_00_00_000 -> "₹%.2f Cr".format(absAmount / 1_00_00_000.0)
+            absAmount >= 1_00_000 -> "₹%.1f L".format(absAmount / 1_00_000.0)
             else -> "₹%.0f".format(absAmount)
         }
         return if (isNegative) "-$formatted" else formatted

@@ -229,6 +229,13 @@ class WealthTrackerViewModel(
         }
     }
 
+    /** Update an existing portfolio snapshot in history. */
+    fun updateSnapshot(snapshot: AssetSnapshotEntity) {
+        viewModelScope.launch {
+            repository.updateSnapshot(snapshot)
+        }
+    }
+
     /** Delete a snapshot from history. */
     fun deleteSnapshot(snapshot: AssetSnapshotEntity) {
         viewModelScope.launch {
@@ -609,20 +616,65 @@ class WealthTrackerViewModel(
                     val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
                     val backup = moshi.adapter(WealthBackup::class.java).fromJson(json)
                     if (backup != null) {
+                        val currentHoldings = repository.getAllHoldings().first()
+                        val currentTransactions = repository.getAllTransactions().first()
+                        val currentSnapshots = repository.getAllSnapshots().first()
+
                         val oldToNewIdMap = mutableMapOf<Int, Int>()
+
+                        // 1. Merge / deduplicate Holdings
                         backup.holdings.forEach { oldHolding ->
-                            val newId = repository.insertHolding(oldHolding.copy(id = 0)).toInt()
-                            oldToNewIdMap[oldHolding.id] = newId
-                        }
-                        
-                        backup.transactions.forEach { oldTx ->
-                            val newHoldingId = oldToNewIdMap[oldTx.holdingId]
-                            if (newHoldingId != null) {
-                                repository.insertTransaction(oldTx.copy(id = 0, holdingId = newHoldingId))
+                            val existing = currentHoldings.firstOrNull { h ->
+                                if (oldHolding.isManual) {
+                                    h.isManual && h.name.equals(oldHolding.name, ignoreCase = true) && h.assetClass == oldHolding.assetClass
+                                } else {
+                                    h.identifier.equals(oldHolding.identifier, ignoreCase = true) &&
+                                        (h.exchange.equals(oldHolding.exchange, ignoreCase = true) || (h.exchange == null && oldHolding.exchange == null))
+                                }
+                            }
+
+                            if (existing != null) {
+                                oldToNewIdMap[oldHolding.id] = existing.id
+                                // If existing had 0 units or backup has updated values, update
+                                if (existing.unitsHeld <= 0 && oldHolding.unitsHeld > 0) {
+                                    repository.updateHolding(existing.copy(
+                                        unitsHeld = oldHolding.unitsHeld,
+                                        investedAmount = oldHolding.investedAmount,
+                                        expenseRatio = if (oldHolding.expenseRatio > 0) oldHolding.expenseRatio else existing.expenseRatio
+                                    ))
+                                }
+                            } else {
+                                val newId = repository.insertHolding(oldHolding.copy(id = 0)).toInt()
+                                oldToNewIdMap[oldHolding.id] = newId
                             }
                         }
-                        
-                        backup.snapshots.forEach { repository.insertSnapshot(it.copy(id = 0)) }
+
+                        // 2. Merge / deduplicate Transactions
+                        backup.transactions.forEach { oldTx ->
+                            val targetHoldingId = oldToNewIdMap[oldTx.holdingId]
+                            if (targetHoldingId != null) {
+                                val txExists = currentTransactions.any { tx ->
+                                    tx.holdingId == targetHoldingId &&
+                                    tx.timestamp == oldTx.timestamp &&
+                                    kotlin.math.abs(tx.units - oldTx.units) < 0.0001 &&
+                                    tx.type == oldTx.type
+                                }
+                                if (!txExists) {
+                                    repository.insertTransaction(oldTx.copy(id = 0, holdingId = targetHoldingId))
+                                }
+                            }
+                        }
+
+                        // 3. Merge / deduplicate Snapshots (check for same calendar day within 12h window)
+                        backup.snapshots.forEach { oldSnapshot ->
+                            val snapshotExists = currentSnapshots.any { s ->
+                                kotlin.math.abs(s.recordedAt - oldSnapshot.recordedAt) < 12 * 60 * 60 * 1000L
+                            }
+                            if (!snapshotExists) {
+                                repository.insertSnapshot(oldSnapshot.copy(id = 0))
+                            }
+                        }
+
                         syncPricesNow()
                         withContext(Dispatchers.Main) { onComplete(true) }
                         return@launch

@@ -445,6 +445,7 @@ fun WealthTrackerScreen(
                     onSave = { snapshot ->
                         viewModel.saveSnapshot(snapshot)
                     },
+                    onUpdate = viewModel::updateSnapshot,
                     onDelete = viewModel::deleteSnapshot
                 )
                 }

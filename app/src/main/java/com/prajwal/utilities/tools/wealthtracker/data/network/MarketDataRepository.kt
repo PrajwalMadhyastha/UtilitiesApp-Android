@@ -370,11 +370,17 @@ class MarketDataRepository private constructor() {
     }
 
     /**
-     * Scrape Expense Ratio from Moneycontrol for a given mutual fund name.
+     * Scrape Expense Ratio from Moneycontrol for a given mutual fund name with multi-pattern resilience.
      */
     suspend fun fetchMfExpenseRatio(fundName: String, amfiCode: String? = null): Double? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
-            var searchName = fundName
+            // Clean query to avoid Solr zero-result matches on verbose fund names
+            val cleanQuery = fundName
+                .replace(Regex("(?i)\\b(direct|regular|plan|growth|idcw|dividend|option|fund|reinvestment)\\b"), "")
+                .replace(Regex("[^a-zA-Z0-9 ]"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            val searchName = if (cleanQuery.length >= 3) cleanQuery else fundName.trim()
             val desktopUa = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             
             val encodedQuery = java.net.URLEncoder.encode(searchName, "UTF-8")
@@ -385,12 +391,16 @@ class MarketDataRepository private constructor() {
                 .build()
 
             val searchResponse = sharedOkHttpClient.newCall(searchRequest).execute()
-            if (!searchResponse.isSuccessful) return@withContext null
+            if (!searchResponse.isSuccessful) {
+                Log.w("MarketDataRepo", "MF Expense Ratio Solr search HTTP error: ${searchResponse.code()} for '$fundName'")
+                return@withContext null
+            }
 
             val searchBody = searchResponse.body()?.string() ?: ""
+            if (searchBody.isBlank()) return@withContext null
             
-            val isDirectFund = searchName.contains("direct", ignoreCase = true)
-            val isRegularFund = searchName.contains("regular", ignoreCase = true)
+            val isDirectFund = fundName.contains("direct", ignoreCase = true)
+            val isRegularFund = fundName.contains("regular", ignoreCase = true)
             
             val blocks = searchBody.split("{")
             var bestUrlStr: String? = null
@@ -427,13 +437,24 @@ class MarketDataRepository private constructor() {
 
             val detailBody = detailResponse.body()?.string() ?: ""
 
-            // Extract from Next.js JSON blob or HTML: "expenseRatio":"0.53 %"
-            val expenseRatioRegex = Regex(""""expenseRatio"\s*:\s*"([0-9.]+)\s*%?"""")
-            val match = expenseRatioRegex.find(detailBody)
+            // Multiple fallback patterns for extracting expense ratio across Next.js JSON and HTML
+            val expenseRatioPatterns = listOf(
+                Regex(""""expenseRatio"\s*:\s*"([0-9.]+)\s*%?""""),
+                Regex(""""expense_ratio"\s*:\s*"([0-9.]+)\s*%?""""),
+                Regex("""class="[^"]*exp_ratio[^"]*"[^>]*>\s*([0-9.]+)\s*%?"""),
+                Regex("""Expense\s+Ratio[^<]*</span>\s*<span[^>]*>\s*([0-9.]+)\s*%?"""),
+                Regex("""Expense\s+Ratio[^:]*:\s*([0-9.]+)\s*%"""),
+                Regex(""""ter"\s*:\s*"?([0-9.]+)"?""")
+            )
+
+            val result = expenseRatioPatterns.firstNotNullOfOrNull { regex ->
+                regex.find(detailBody)?.groupValues?.get(1)?.toDoubleOrNull()
+            }
             
-            val result = match?.groupValues?.get(1)?.toDoubleOrNull()
-            if (result != null) {
+            if (result != null && result > 0.0) {
                 Log.d("MarketDataRepo", "Scraped expense ratio for '$fundName': $result%")
+            } else {
+                Log.w("MarketDataRepo", "Expense ratio could not be extracted from detail page: $detailUrlStr")
             }
             return@withContext result
         } catch (e: Exception) {
