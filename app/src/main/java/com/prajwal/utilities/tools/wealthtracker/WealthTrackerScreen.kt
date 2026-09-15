@@ -418,6 +418,9 @@ fun WealthTrackerScreen(
                     onTopUpHolding = viewModel::topUpHolding,
                     onSellHolding = viewModel::sellHolding,
                     onDeleteHolding = viewModel::deleteHolding,
+                    onAddTransaction = viewModel::addTransaction,
+                    onUpdateTransaction = viewModel::updateTransaction,
+                    onDeleteTransaction = viewModel::deleteTransaction,
                     onSyncNow = {
                         viewModel.syncPricesNow { msg ->
                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()

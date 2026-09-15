@@ -82,6 +82,7 @@ class WealthTrackerViewModel(
     init {
         com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.init(prefs.context)
         fetchNifty50()
+        seedMissingTransactionsForLegacyHoldings()
         viewModelScope.launch {
             @OptIn(FlowPreview::class)
             combine(holdings, transactions) { h, t -> Pair(h, t) }
@@ -89,6 +90,30 @@ class WealthTrackerViewModel(
                 .collect { (currentHoldings, _) ->
                     calculateDividendsLocal(currentHoldings)
                 }
+        }
+    }
+
+    private fun seedMissingTransactionsForLegacyHoldings() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val allHoldings = repository.getAllHoldings().first()
+            for (holding in allHoldings) {
+                if (holding.unitsHeld > 0) {
+                    val txs = repository.getTransactionsForHoldingSync(holding.id)
+                    if (txs.isEmpty()) {
+                        val pricePerUnit = holding.investedAmount / holding.unitsHeld
+                        repository.insertTransaction(
+                            com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity(
+                                holdingId = holding.id,
+                                timestamp = holding.lastUpdatedAt,
+                                units = holding.unitsHeld,
+                                pricePerUnit = pricePerUnit,
+                                type = com.prajwal.utilities.tools.wealthtracker.data.db.TransactionType.BUY
+                            )
+                        )
+                        Log.i("WealthTracker", "Auto-seeded initial BUY transaction for legacy holding '${holding.name}'")
+                    }
+                }
+            }
         }
     }
 
@@ -266,58 +291,134 @@ class WealthTrackerViewModel(
         }
     }
 
-    fun topUpHolding(holding: HoldingEntity, addedUnits: Double, addedInvested: Double) {
+    private suspend fun recalculateHoldingFromTransactions(holdingId: Int) {
+        val holding = repository.getHoldingById(holdingId) ?: return
+        val txs = repository.getTransactionsForHoldingSync(holdingId).sortedBy { it.timestamp }
+
+        if (txs.isEmpty()) {
+            repository.updateHolding(holding.copy(unitsHeld = 0.0, investedAmount = 0.0))
+            return
+        }
+
+        var units = 0.0
+        var invested = 0.0
+        for (tx in txs) {
+            if (tx.type == com.prajwal.utilities.tools.wealthtracker.data.db.TransactionType.BUY) {
+                units += tx.units
+                invested += (tx.units * tx.pricePerUnit)
+            } else if (tx.type == com.prajwal.utilities.tools.wealthtracker.data.db.TransactionType.SELL) {
+                if (units > 0) {
+                    val avgCostPerUnit = invested / units
+                    val unitsSold = kotlin.math.min(tx.units, units)
+                    invested = kotlin.math.max(0.0, invested - (unitsSold * avgCostPerUnit))
+                    units = kotlin.math.max(0.0, units - unitsSold)
+                }
+            }
+        }
+        repository.updateHolding(holding.copy(unitsHeld = units, investedAmount = invested))
+    }
+
+    fun addTransaction(holdingId: Int, transaction: com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) {
         viewModelScope.launch {
-            val updatedHolding = holding.copy(
-                unitsHeld = holding.unitsHeld + addedUnits,
-                investedAmount = holding.investedAmount + addedInvested
-            )
-            repository.updateHolding(updatedHolding)
-            
+            val existingTxs = repository.getTransactionsForHoldingSync(holdingId)
+            val holding = repository.getHoldingById(holdingId)
+            if (existingTxs.isEmpty() && holding != null && holding.unitsHeld > 0) {
+                // Seed initial holding state as a base BUY transaction
+                val basePrice = holding.investedAmount / holding.unitsHeld
+                repository.insertTransaction(
+                    com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity(
+                        holdingId = holdingId,
+                        timestamp = kotlin.math.min(holding.lastUpdatedAt, transaction.timestamp - 1000),
+                        units = holding.unitsHeld,
+                        pricePerUnit = basePrice,
+                        type = com.prajwal.utilities.tools.wealthtracker.data.db.TransactionType.BUY
+                    )
+                )
+            }
+            repository.insertTransaction(transaction.copy(id = 0, holdingId = holdingId))
+            recalculateHoldingFromTransactions(holdingId)
+            syncPricesNow()
+        }
+    }
+
+    fun updateTransaction(transaction: com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) {
+        viewModelScope.launch {
+            repository.updateTransaction(transaction)
+            recalculateHoldingFromTransactions(transaction.holdingId)
+            syncPricesNow()
+        }
+    }
+
+    fun deleteTransaction(transaction: com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) {
+        viewModelScope.launch {
+            repository.deleteTransaction(transaction)
+            recalculateHoldingFromTransactions(transaction.holdingId)
+            syncPricesNow()
+        }
+    }
+
+    fun topUpHolding(holding: HoldingEntity, addedUnits: Double, addedInvested: Double, timestamp: Long = System.currentTimeMillis()) {
+        viewModelScope.launch {
             if (addedUnits > 0) {
+                val existingTxs = repository.getTransactionsForHoldingSync(holding.id)
+                if (existingTxs.isEmpty() && holding.unitsHeld > 0) {
+                    val basePrice = holding.investedAmount / holding.unitsHeld
+                    repository.insertTransaction(
+                        com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity(
+                            holdingId = holding.id,
+                            timestamp = kotlin.math.min(holding.lastUpdatedAt, timestamp - 1000),
+                            units = holding.unitsHeld,
+                            pricePerUnit = basePrice,
+                            type = com.prajwal.utilities.tools.wealthtracker.data.db.TransactionType.BUY
+                        )
+                    )
+                }
+
                 val pricePerUnit = addedInvested / addedUnits
                 repository.insertTransaction(
                     com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity(
                         holdingId = holding.id,
-                        timestamp = System.currentTimeMillis(),
+                        timestamp = timestamp,
                         units = addedUnits,
                         pricePerUnit = pricePerUnit,
                         type = com.prajwal.utilities.tools.wealthtracker.data.db.TransactionType.BUY
                     )
                 )
+                recalculateHoldingFromTransactions(holding.id)
             }
-            
             syncPricesNow()
         }
     }
 
-    fun sellHolding(holding: HoldingEntity, unitsToSell: Double, sellPrice: Double) {
+    fun sellHolding(holding: HoldingEntity, unitsToSell: Double, sellPrice: Double, timestamp: Long = System.currentTimeMillis()) {
         viewModelScope.launch {
             if (unitsToSell <= 0 || holding.unitsHeld <= 0) return@launch
-            
             val actualUnitsToSell = kotlin.math.min(unitsToSell, holding.unitsHeld)
-            
-            // Proportionally reduce invested amount to keep average buy price the same
-            val proportionSold = actualUnitsToSell / holding.unitsHeld
-            val amountToReduce = holding.investedAmount * proportionSold
-            
-            val updatedHolding = holding.copy(
-                unitsHeld = holding.unitsHeld - actualUnitsToSell,
-                investedAmount = kotlin.math.max(0.0, holding.investedAmount - amountToReduce)
-            )
-            
-            repository.updateHolding(updatedHolding)
-            
+
+            val existingTxs = repository.getTransactionsForHoldingSync(holding.id)
+            if (existingTxs.isEmpty() && holding.unitsHeld > 0) {
+                val basePrice = holding.investedAmount / holding.unitsHeld
+                repository.insertTransaction(
+                    com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity(
+                        holdingId = holding.id,
+                        timestamp = kotlin.math.min(holding.lastUpdatedAt, timestamp - 1000),
+                        units = holding.unitsHeld,
+                        pricePerUnit = basePrice,
+                        type = com.prajwal.utilities.tools.wealthtracker.data.db.TransactionType.BUY
+                    )
+                )
+            }
+
             repository.insertTransaction(
                 com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity(
                     holdingId = holding.id,
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = timestamp,
                     units = actualUnitsToSell,
                     pricePerUnit = sellPrice,
                     type = com.prajwal.utilities.tools.wealthtracker.data.db.TransactionType.SELL
                 )
             )
-            
+            recalculateHoldingFromTransactions(holding.id)
             syncPricesNow()
         }
     }

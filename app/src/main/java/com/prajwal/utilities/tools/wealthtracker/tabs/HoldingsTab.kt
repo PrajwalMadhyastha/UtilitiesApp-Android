@@ -1,5 +1,6 @@
 package com.prajwal.utilities.tools.wealthtracker.tabs
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -9,10 +10,12 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
@@ -23,9 +26,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import com.prajwal.utilities.tools.wealthtracker.components.HoldingLedgerSheet
 import com.prajwal.utilities.tools.wealthtracker.data.MilestoneCalculator
-import com.prajwal.utilities.tools.wealthtracker.data.db.HoldingEntity
 import com.prajwal.utilities.tools.wealthtracker.data.SortOption
+import com.prajwal.utilities.tools.wealthtracker.data.XirrCalculator
+import com.prajwal.utilities.tools.wealthtracker.data.db.HoldingEntity
 import com.prajwal.utilities.tools.wealthtracker.data.network.AssetSearchResult
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -46,9 +51,12 @@ fun HoldingsTab(
     onSearchQueryChanged: (String, Boolean) -> Unit,
     onAddHolding: (HoldingEntity) -> Unit,
     onUpdateHolding: (HoldingEntity) -> Unit,
-    onTopUpHolding: (HoldingEntity, Double, Double) -> Unit,
-    onSellHolding: (HoldingEntity, Double, Double) -> Unit,
+    onTopUpHolding: (HoldingEntity, Double, Double, Long) -> Unit,
+    onSellHolding: (HoldingEntity, Double, Double, Long) -> Unit,
     onDeleteHolding: (HoldingEntity) -> Unit,
+    onAddTransaction: (Int, com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) -> Unit,
+    onUpdateTransaction: (com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) -> Unit,
+    onDeleteTransaction: (com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) -> Unit,
     onSyncNow: () -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
@@ -56,6 +64,7 @@ fun HoldingsTab(
     var holdingToEdit by remember { mutableStateOf<HoldingEntity?>(null) }
     var holdingToTopUp by remember { mutableStateOf<HoldingEntity?>(null) }
     var holdingToSell by remember { mutableStateOf<HoldingEntity?>(null) }
+    var holdingForLedger by remember { mutableStateOf<HoldingEntity?>(null) }
     // FIX #18: Guard deletion behind a confirmation dialog (mirrors snapshot deletion in PortfolioTab)
     var holdingToDelete by remember { mutableStateOf<HoldingEntity?>(null) }
 
@@ -80,12 +89,24 @@ fun HoldingsTab(
         )
     }
 
+    holdingForLedger?.let { selectedHolding ->
+        val currentHolding = holdings.firstOrNull { it.id == selectedHolding.id } ?: selectedHolding
+        HoldingLedgerSheet(
+            holding = currentHolding,
+            transactions = transactions.filter { it.holdingId == currentHolding.id },
+            onDismiss = { holdingForLedger = null },
+            onAddTransaction = { tx -> onAddTransaction(currentHolding.id, tx) },
+            onUpdateTransaction = onUpdateTransaction,
+            onDeleteTransaction = onDeleteTransaction
+        )
+    }
+
     if (holdingToTopUp != null) {
         TopUpDialog(
             holding = holdingToTopUp!!,
             onDismiss = { holdingToTopUp = null },
-            onSave = { addedUnits, addedInvested ->
-                onTopUpHolding(holdingToTopUp!!, addedUnits, addedInvested)
+            onSave = { addedUnits, addedInvested, timestamp ->
+                onTopUpHolding(holdingToTopUp!!, addedUnits, addedInvested, timestamp)
                 holdingToTopUp = null
             }
         )
@@ -95,8 +116,8 @@ fun HoldingsTab(
         SellDialog(
             holding = holdingToSell!!,
             onDismiss = { holdingToSell = null },
-            onSave = { unitsToSell, sellPrice ->
-                onSellHolding(holdingToSell!!, unitsToSell, sellPrice)
+            onSave = { unitsToSell, sellPrice, timestamp ->
+                onSellHolding(holdingToSell!!, unitsToSell, sellPrice, timestamp)
                 holdingToSell = null
             }
         )
@@ -146,7 +167,7 @@ fun HoldingsTab(
                     var showSortMenu by remember { mutableStateOf(false) }
                     Box {
                         IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.Default.Sort, contentDescription = "Sort")
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
                         }
                         DropdownMenu(
                             expanded = showSortMenu,
@@ -409,7 +430,8 @@ fun HoldingsTab(
                                 onTopUp = { holdingToTopUp = holding },
                                 onSell = { holdingToSell = holding },
                                 onEdit = { holdingToEdit = holding },
-                                onDelete = { holdingToDelete = holding }
+                                onDelete = { holdingToDelete = holding },
+                                onOpenLedger = { holdingForLedger = holding }
                             )
                         }
                     }
@@ -452,7 +474,8 @@ fun HoldingCard(
     onTopUp: () -> Unit, 
     onSell: () -> Unit,
     onEdit: () -> Unit, 
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onOpenLedger: () -> Unit
 ) {
     val currentVal = holding.unitsHeld * holding.latestPrice
     val gain = currentVal - holding.investedAmount
@@ -461,7 +484,9 @@ fun HoldingCard(
     val sdf = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenLedger),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -587,33 +612,133 @@ fun HoldingCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = onOpenLedger,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ReceiptLong,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "${transactions.size} trades • View Ledger",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                val holdingXirr = remember(transactions, currentVal) {
+                    if (transactions.isNotEmpty() && currentVal > 0) {
+                        XirrCalculator.calculateXirr(transactions, currentVal)
+                    } else 0.0
+                }
+                if (holdingXirr != 0.0 && !holdingXirr.isNaN()) {
+                    Text(
+                        text = "XIRR: ${if (holdingXirr >= 0) "+" else ""}${"%.2f".format(holdingXirr * 100)}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (holdingXirr >= 0) Color(0xFF16A34A) else MaterialTheme.colorScheme.error
+                    )
+                }
+            }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TopUpDialog(
     holding: HoldingEntity,
     onDismiss: () -> Unit,
-    onSave: (Double, Double) -> Unit
+    onSave: (Double, Double, Long) -> Unit
 ) {
     var newUnitsStr by remember { mutableStateOf("") }
     var newInvestedStr by remember { mutableStateOf("") }
-    // FIX #17: Track validation state so user gets clear errors instead of silent nothing
+    var selectedDateMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var saveAttempted by remember { mutableStateOf(false) }
+
+    val dateFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
     val unitsError = saveAttempted && (newUnitsStr.toDoubleOrNull() ?: 0.0) <= 0.0
     val investedError = saveAttempted && (newInvestedStr.toDoubleOrNull() ?: 0.0) <= 0.0
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        val nowCalendar = java.util.Calendar.getInstance()
+                        val selectedCalendar = java.util.Calendar.getInstance().apply { timeInMillis = it }
+                        selectedCalendar.set(java.util.Calendar.HOUR_OF_DAY, nowCalendar.get(java.util.Calendar.HOUR_OF_DAY))
+                        selectedCalendar.set(java.util.Calendar.MINUTE, nowCalendar.get(java.util.Calendar.MINUTE))
+                        selectedCalendar.set(java.util.Calendar.SECOND, nowCalendar.get(java.util.Calendar.SECOND))
+                        selectedDateMillis = selectedCalendar.timeInMillis
+                    }
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Top-Up ${holding.name.ifBlank { holding.identifier }}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "Current Units: ${holding.unitsHeld}\nCurrent Invested: ${MilestoneCalculator.formatInrExact(holding.investedAmount)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                OutlinedCard(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Purchase Date", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(dateFmt.format(Date(selectedDateMillis)), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = "Select Date",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = newUnitsStr,
                     onValueChange = { newUnitsStr = it; saveAttempted = false },
@@ -641,7 +766,7 @@ fun TopUpDialog(
                     val newUnits = newUnitsStr.toDoubleOrNull() ?: 0.0
                     val newInv = newInvestedStr.toDoubleOrNull() ?: 0.0
                     if (newUnits > 0 && newInv > 0) {
-                        onSave(newUnits, newInv)
+                        onSave(newUnits, newInv, selectedDateMillis)
                     }
                 }
             ) {
@@ -654,29 +779,87 @@ fun TopUpDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SellDialog(
     holding: HoldingEntity,
     onDismiss: () -> Unit,
-    onSave: (Double, Double) -> Unit
+    onSave: (Double, Double, Long) -> Unit
 ) {
     var unitsStr by remember { mutableStateOf(holding.unitsHeld.toString()) }
     var priceStr by remember { mutableStateOf(if (holding.latestPrice > 0) holding.latestPrice.toString() else "") }
+    var selectedDateMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var saveAttempted by remember { mutableStateOf(false) }
-    
+
+    val dateFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
     val unitsError = saveAttempted && ((unitsStr.toDoubleOrNull() ?: 0.0) <= 0.0 || (unitsStr.toDoubleOrNull() ?: 0.0) > holding.unitsHeld)
     val priceError = saveAttempted && (priceStr.toDoubleOrNull() ?: 0.0) <= 0.0
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        val nowCalendar = java.util.Calendar.getInstance()
+                        val selectedCalendar = java.util.Calendar.getInstance().apply { timeInMillis = it }
+                        selectedCalendar.set(java.util.Calendar.HOUR_OF_DAY, nowCalendar.get(java.util.Calendar.HOUR_OF_DAY))
+                        selectedCalendar.set(java.util.Calendar.MINUTE, nowCalendar.get(java.util.Calendar.MINUTE))
+                        selectedCalendar.set(java.util.Calendar.SECOND, nowCalendar.get(java.util.Calendar.SECOND))
+                        selectedDateMillis = selectedCalendar.timeInMillis
+                    }
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Sell ${holding.name.ifBlank { holding.identifier }}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     "You own ${holding.unitsHeld} units.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                OutlinedCard(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Sale Date", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(dateFmt.format(Date(selectedDateMillis)), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = "Select Date",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = unitsStr,
                     onValueChange = { unitsStr = it; saveAttempted = false },
@@ -706,7 +889,7 @@ fun SellDialog(
                     val units = unitsStr.toDoubleOrNull() ?: 0.0
                     val price = priceStr.toDoubleOrNull() ?: 0.0
                     if (units > 0 && units <= holding.unitsHeld && price > 0) {
-                        onSave(units, price)
+                        onSave(units, price, selectedDateMillis)
                     }
                 }
             ) {

@@ -28,11 +28,23 @@ interface HoldingsDao {
     @Query("UPDATE holdings SET latestPrice = :price, previousClosePrice = :previousClosePrice, lastUpdatedAt = :timestamp WHERE id = :id")
     suspend fun updatePrice(id: Int, price: Double, previousClosePrice: Double, timestamp: Long = System.currentTimeMillis())
 
+    @Query("SELECT * FROM holdings WHERE id = :id LIMIT 1")
+    suspend fun getHoldingById(id: Int): HoldingEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: TransactionEntity)
 
+    @Update
+    suspend fun updateTransaction(transaction: TransactionEntity)
+
+    @Delete
+    suspend fun deleteTransaction(transaction: TransactionEntity)
+
     @Query("SELECT * FROM transactions WHERE holdingId = :holdingId ORDER BY timestamp ASC")
     fun getTransactionsForHolding(holdingId: Int): Flow<List<TransactionEntity>>
+
+    @Query("SELECT * FROM transactions WHERE holdingId = :holdingId ORDER BY timestamp ASC")
+    suspend fun getTransactionsForHoldingSync(holdingId: Int): List<TransactionEntity>
 
     @Query("SELECT * FROM transactions ORDER BY timestamp ASC")
     fun getAllTransactions(): Flow<List<TransactionEntity>>
