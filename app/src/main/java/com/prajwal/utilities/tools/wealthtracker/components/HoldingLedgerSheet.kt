@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,7 +39,8 @@ fun HoldingLedgerSheet(
     onDismiss: () -> Unit,
     onAddTransaction: (TransactionEntity) -> Unit,
     onUpdateTransaction: (TransactionEntity) -> Unit,
-    onDeleteTransaction: (TransactionEntity) -> Unit
+    onDeleteTransaction: (TransactionEntity) -> Unit,
+    onRefreshHolding: (() -> Unit)? = null
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var transactionToEdit by remember { mutableStateOf<TransactionEntity?>(null) }
@@ -132,14 +134,30 @@ fun HoldingLedgerSheet(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (holding.latestPrice > 0) {
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("Live Price", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            MilestoneCalculator.formatInrExact(holding.latestPrice, showDecimals = true),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (holding.latestPrice > 0) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Live Price", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                MilestoneCalculator.formatInrExact(holding.latestPrice, showDecimals = true),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    if (!holding.isManual && onRefreshHolding != null) {
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(
+                            onClick = onRefreshHolding,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh holding price",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }

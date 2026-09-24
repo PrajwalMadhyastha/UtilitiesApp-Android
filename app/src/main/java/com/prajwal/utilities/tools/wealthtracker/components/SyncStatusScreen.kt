@@ -240,7 +240,12 @@ fun SyncStatusScreen(
                     HoldingsStatusTab(
                         items = syncReport?.items ?: emptyList(),
                         selectedFilter = selectedFilter,
-                        onFilterChanged = { selectedFilter = it }
+                        onFilterChanged = { selectedFilter = it },
+                        onRefreshHolding = { holdingId ->
+                            viewModel.refreshHoldingPriceById(holdingId) { msg ->
+                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     )
                 }
                 DiagnosticsTab.LOGCAT -> {
@@ -287,7 +292,8 @@ private fun StatBadge(label: String, count: Int, color: Color) {
 private fun HoldingsStatusTab(
     items: List<SyncItemReport>,
     selectedFilter: String,
-    onFilterChanged: (String) -> Unit
+    onFilterChanged: (String) -> Unit,
+    onRefreshHolding: ((Int) -> Unit)? = null
 ) {
     val filteredItems = remember(items, selectedFilter) {
         when (selectedFilter) {
@@ -349,7 +355,10 @@ private fun HoldingsStatusTab(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(filteredItems, key = { "${it.holdingId}_${it.identifier}" }) { item ->
-                    HoldingSyncItemCard(item = item)
+                    HoldingSyncItemCard(
+                        item = item,
+                        onRefresh = if (onRefreshHolding != null) { { onRefreshHolding(item.holdingId) } } else null
+                    )
                 }
             }
         }
@@ -357,7 +366,10 @@ private fun HoldingsStatusTab(
 }
 
 @Composable
-private fun HoldingSyncItemCard(item: SyncItemReport) {
+private fun HoldingSyncItemCard(
+    item: SyncItemReport,
+    onRefresh: (() -> Unit)? = null
+) {
     val statusColor = when (item.status) {
         "SUCCESS" -> Color(0xFF16A34A)
         "FAILED" -> MaterialTheme.colorScheme.error
@@ -403,18 +415,34 @@ private fun HoldingSyncItemCard(item: SyncItemReport) {
                     )
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = statusColor.copy(alpha = 0.12f),
-                    modifier = Modifier.padding(start = 8.dp)
-                ) {
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = statusColor,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = statusColor.copy(alpha = 0.12f),
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Text(
+                            text = statusText,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    if (item.status != "SKIPPED" && onRefresh != null) {
+                        IconButton(
+                            onClick = onRefresh,
+                            modifier = Modifier.size(32.dp).padding(start = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh holding",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
             }
 

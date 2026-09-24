@@ -57,7 +57,8 @@ fun HoldingsTab(
     onAddTransaction: (Int, com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) -> Unit,
     onUpdateTransaction: (com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) -> Unit,
     onDeleteTransaction: (com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) -> Unit,
-    onSyncNow: () -> Unit
+    onSyncNow: () -> Unit,
+    onRefreshHolding: ((HoldingEntity) -> Unit)? = null
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var showAddManualDialog by remember { mutableStateOf(false) }
@@ -97,7 +98,8 @@ fun HoldingsTab(
             onDismiss = { holdingForLedger = null },
             onAddTransaction = { tx -> onAddTransaction(currentHolding.id, tx) },
             onUpdateTransaction = onUpdateTransaction,
-            onDeleteTransaction = onDeleteTransaction
+            onDeleteTransaction = onDeleteTransaction,
+            onRefreshHolding = if (onRefreshHolding != null) { { onRefreshHolding(currentHolding) } } else null
         )
     }
 
@@ -431,7 +433,8 @@ fun HoldingsTab(
                                 onSell = { holdingToSell = holding },
                                 onEdit = { holdingToEdit = holding },
                                 onDelete = { holdingToDelete = holding },
-                                onOpenLedger = { holdingForLedger = holding }
+                                onOpenLedger = { holdingForLedger = holding },
+                                onRefresh = if (onRefreshHolding != null) { { onRefreshHolding(holding) } } else null
                             )
                         }
                     }
@@ -475,7 +478,8 @@ fun HoldingCard(
     onSell: () -> Unit,
     onEdit: () -> Unit, 
     onDelete: () -> Unit,
-    onOpenLedger: () -> Unit
+    onOpenLedger: () -> Unit,
+    onRefresh: (() -> Unit)? = null
 ) {
     val currentVal = holding.unitsHeld * holding.latestPrice
     val gain = currentVal - holding.investedAmount
@@ -588,13 +592,30 @@ fun HoldingCard(
                 Spacer(Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        "Last sync: ${sdf.format(Date(holding.lastUpdatedAt))}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Last sync: ${sdf.format(Date(holding.lastUpdatedAt))}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (!holding.isManual && onRefresh != null) {
+                            Spacer(Modifier.width(4.dp))
+                            IconButton(
+                                onClick = onRefresh,
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = "Refresh holding price",
+                                    modifier = Modifier.size(13.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(
                             "${if (gain >= 0) "+" else "-"}${MilestoneCalculator.formatInrExact(kotlin.math.abs(gain))} (${"%.2f".format(gainPct)}%)",
@@ -605,12 +626,30 @@ fun HoldingCard(
                     }
                 }
             } else {
-                // FIX #22 / hint: tell user why values are missing instead of silent "-"
-                Text(
-                    "Prices not yet synced — tap \"Sync Live\" to fetch live prices",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Prices not yet synced — tap refresh to fetch live prices",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (!holding.isManual && onRefresh != null) {
+                        IconButton(
+                            onClick = onRefresh,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh holding price",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(Modifier.height(8.dp))

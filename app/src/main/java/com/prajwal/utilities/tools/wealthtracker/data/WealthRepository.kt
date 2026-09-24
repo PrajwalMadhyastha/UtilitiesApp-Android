@@ -44,6 +44,9 @@ class WealthRepository(
     suspend fun updateHoldingPrice(id: Int, price: Double, previousClosePrice: Double) =
         holdingsDao.updatePrice(id, price, previousClosePrice)
 
+    suspend fun updateHoldingExpenseRatio(id: Int, expenseRatio: Double) =
+        holdingsDao.updateExpenseRatio(id, expenseRatio)
+
     suspend fun insertTransaction(transaction: com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) =
         holdingsDao.insertTransaction(transaction)
 

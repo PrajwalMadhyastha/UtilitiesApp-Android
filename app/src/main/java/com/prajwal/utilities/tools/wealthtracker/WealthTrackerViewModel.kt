@@ -426,7 +426,111 @@ class WealthTrackerViewModel(
     fun updateHolding(holding: HoldingEntity) {
         viewModelScope.launch {
             repository.updateHolding(holding)
-            syncPricesNow()
+            refreshHoldingPrice(holding)
+        }
+    }
+
+    fun refreshHoldingPrice(holding: HoldingEntity, onComplete: ((String) -> Unit)? = null) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (holding.isManual) {
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke("Manual holdings cannot be refreshed from market")
+                }
+                return@launch
+            }
+
+            val syncMsg = "Refreshing price for '${holding.name}' (${holding.identifier})..."
+            Log.d("WealthTrackerSync", syncMsg)
+            com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", syncMsg)
+
+            val result = if (holding.instrumentType == "MF") {
+                marketDataRepository.fetchMfNav(
+                    schemeCode = holding.identifier,
+                    fallbackFundName = holding.name,
+                    existingPrice = holding.latestPrice
+                )
+            } else {
+                marketDataRepository.fetchStockPrice(holding.identifier, holding.exchange)
+            }
+
+            when (result) {
+                is com.prajwal.utilities.tools.wealthtracker.data.network.PriceFetchResult.Success -> {
+                    val prices = result.prices
+                    repository.updateHoldingPrice(
+                        id = holding.id,
+                        price = prices.latestPrice,
+                        previousClosePrice = prices.previousClosePrice
+                    )
+                    if (prices.expenseRatio != null && prices.expenseRatio > 0.0) {
+                        repository.updateHoldingExpenseRatio(holding.id, prices.expenseRatio)
+                    }
+                    val dateInfo = prices.asOfDate?.let { " [As of $it]" } ?: ""
+                    val sourceInfo = prices.source?.let { " via $it" } ?: ""
+                    val msg = "✓ Updated '${holding.name}' -> ₹${prices.latestPrice}$dateInfo$sourceInfo"
+                    Log.i("WealthTrackerSync", msg)
+                    com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("I", msg)
+
+                    com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.updateSingleItemReport(
+                        prefs.context,
+                        com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                            holdingId = holding.id,
+                            holdingName = holding.name,
+                            identifier = holding.identifier,
+                            instrumentType = holding.instrumentType,
+                            assetClass = holding.assetClass,
+                            status = "SUCCESS",
+                            price = prices.latestPrice,
+                            previousClose = prices.previousClosePrice,
+                            asOfDate = prices.asOfDate,
+                            source = prices.source
+                        )
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        onComplete?.invoke("Updated '${holding.name}' -> ₹${prices.latestPrice}")
+                    }
+                }
+                is com.prajwal.utilities.tools.wealthtracker.data.network.PriceFetchResult.Failure -> {
+                    val failMsg = "✗ Failed to update '${holding.name}': ${result.errorMessage}"
+                    Log.e("WealthTrackerSync", failMsg)
+                    com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("E", failMsg)
+                    result.diagnosticLogs.forEach { d ->
+                        com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", "  └─ $d")
+                    }
+
+                    com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.updateSingleItemReport(
+                        prefs.context,
+                        com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                            holdingId = holding.id,
+                            holdingName = holding.name,
+                            identifier = holding.identifier,
+                            instrumentType = holding.instrumentType,
+                            assetClass = holding.assetClass,
+                            status = "FAILED",
+                            price = holding.latestPrice,
+                            previousClose = holding.previousClosePrice,
+                            errorMessage = result.errorMessage
+                        )
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        onComplete?.invoke("Failed: ${result.errorMessage}")
+                    }
+                }
+            }
+        }
+    }
+
+    fun refreshHoldingPriceById(holdingId: Int, onComplete: ((String) -> Unit)? = null) {
+        viewModelScope.launch {
+            val holding = repository.getHoldingById(holdingId)
+            if (holding != null) {
+                refreshHoldingPrice(holding, onComplete)
+            } else {
+                withContext(Dispatchers.Main) {
+                    onComplete?.invoke("Holding not found")
+                }
+            }
         }
     }
 
@@ -506,7 +610,7 @@ class WealthTrackerViewModel(
             com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("I", startMsg)
             try {
                 fetchNifty50()
-                val currentHoldings = holdings.value
+                val currentHoldings = repository.getAllHoldings().first()
                 val totalHoldings = currentHoldings.size
                 var anyExpenseRatioFetchFailed = false
 
@@ -566,7 +670,7 @@ class WealthTrackerViewModel(
                                 )
                                 // If expense ratio was scraped, update holding's expense ratio if currently missing
                                 if (prices.expenseRatio != null && prices.expenseRatio > 0.0 && holding.expenseRatio <= 0.0) {
-                                    repository.updateHolding(holding.copy(expenseRatio = prices.expenseRatio))
+                                    repository.updateHoldingExpenseRatio(holding.id, prices.expenseRatio)
                                     val expMsg = "Updated expense ratio for '${holding.name}': ${prices.expenseRatio}%"
                                     Log.d("WealthTrackerSync", expMsg)
                                     com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", expMsg)
@@ -577,7 +681,7 @@ class WealthTrackerViewModel(
                                         if (expenseRatio == null) {
                                             anyExpenseRatioFetchFailed = true
                                         } else if (expenseRatio > 0.0 && expenseRatio != holding.expenseRatio) {
-                                            repository.updateHolding(holding.copy(expenseRatio = expenseRatio))
+                                            repository.updateHoldingExpenseRatio(holding.id, expenseRatio)
                                             val expMsg = "Updated expense ratio for '${holding.name}': $expenseRatio%"
                                             Log.d("WealthTrackerSync", expMsg)
                                             com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", expMsg)

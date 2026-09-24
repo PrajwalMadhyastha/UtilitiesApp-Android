@@ -203,42 +203,87 @@ class MarketDataRepository private constructor() {
             val searchBody = searchResponse.body()?.string() ?: ""
             if (searchBody.isBlank()) return@withContext null
 
-            val isDirectFund = fundName.contains("direct", ignoreCase = true)
-            val isRegularFund = fundName.contains("regular", ignoreCase = true)
-            val isIdcw = fundName.contains("idcw", ignoreCase = true) || fundName.contains("dividend", ignoreCase = true)
+            val amcKeywords = listOf(
+                "nippon", "hdfc", "sbi", "icici", "axis", "kotak", "dsp", "aditya birla", "absl", "uti",
+                "mirae", "parag parikh", "ppfas", "motilal", "quant", "bandhan", "tata", "edelweiss",
+                "canara", "robeco", "franklin", "templeton", "invesco", "sundaram", "hsbc", "baroda",
+                "whiteoak", "pgim", "groww", "navi", "zerodha", "jio", "blackrock", "mahindra",
+                "manulife", "union", "samco", "iti", "taurus", "trust", "quantum", "360 one",
+                "helios", "bajaj", "old bridge", "lic"
+            )
+
+            val queryLower = fundName.lowercase()
+            val queryAmc = amcKeywords.firstOrNull { queryLower.contains(it) }
+
+            val isDirectFund = queryLower.contains("direct") || queryLower.contains("dir")
+            val isRegularFund = queryLower.contains("regular") || queryLower.contains("reg")
+            val isIdcw = queryLower.contains("idcw") || queryLower.contains("dividend") || queryLower.contains("div")
+
+            val stopWords = setOf("fund", "plan", "option", "growth", "direct", "regular", "idcw", "dividend", "the", "and")
+            val queryTokens = queryLower.split(Regex("[^a-z0-9]")).filter { it.length > 2 && it !in stopWords }
+
+            data class ScoredCandidate(val score: Int, val url: String, val name: String)
+            val scoredCandidates = mutableListOf<ScoredCandidate>()
 
             val blocks = searchBody.split("{")
-            var bestUrlStr: String? = null
-            var firstUrlStr: String? = null
-
             for (block in blocks) {
                 val linkMatch = Regex(""""link_src"\s*:\s*"([^"]+)"""").find(block)
                 val nameMatch = Regex(""""name"\s*:\s*"([^"]+)"""").find(block)
+                    ?: Regex(""""pdt_dis_nm"\s*:\s*"([^"]+)"""").find(block)
 
                 if (linkMatch != null && nameMatch != null) {
-                    val url = linkMatch.groupValues[1]
-                    val name = nameMatch.groupValues[1]
-                    if (firstUrlStr == null && url.isNotBlank()) firstUrlStr = url
+                    val url = linkMatch.groupValues[1].trim()
+                    val candidateName = nameMatch.groupValues[1].trim()
+                    val candLower = candidateName.lowercase()
 
-                    val targetDirect = (isDirectFund || !isRegularFund)
-                    val matchDirect = name.contains("direct", ignoreCase = true) == targetDirect
-                    val matchGrowth = if (isIdcw) {
-                        name.contains("idcw", ignoreCase = true) || name.contains("dividend", ignoreCase = true)
-                    } else {
-                        name.contains("growth", ignoreCase = true) || !name.contains("idcw", ignoreCase = true)
+                    if (url.isBlank() || candidateName.isBlank()) continue
+
+                    // 1. Strict AMC Brand Filter: If user query specified an AMC, candidate MUST contain that AMC!
+                    if (queryAmc != null && !candLower.contains(queryAmc)) {
+                        continue
                     }
 
-                    if (matchDirect && matchGrowth) {
-                        bestUrlStr = url
-                        break
+                    // 2. Direct vs Regular Plan Filter:
+                    val candDirect = candLower.contains("direct") || candLower.contains("dir")
+                    val candRegular = candLower.contains("regular") || candLower.contains("reg")
+                    if (isDirectFund && candRegular && !candDirect) {
+                        continue
                     }
-                    if (matchDirect && bestUrlStr == null) {
-                        bestUrlStr = url
+                    if (isRegularFund && candDirect && !candRegular) {
+                        continue
                     }
+
+                    // 3. Growth vs IDCW Filter:
+                    val candIdcw = candLower.contains("idcw") || candLower.contains("div")
+                    if (!isIdcw && candIdcw) {
+                        continue
+                    }
+                    if (isIdcw && !candIdcw) {
+                        continue
+                    }
+
+                    // 4. Overlap Score:
+                    var score = 0
+                    if (queryAmc != null && candLower.contains(queryAmc)) score += 10
+                    if (isDirectFund && candDirect) score += 5
+                    for (token in queryTokens) {
+                        if (candLower.contains(token)) {
+                            score += 2
+                        }
+                    }
+
+                    scoredCandidates.add(ScoredCandidate(score, url, candidateName))
                 }
             }
 
-            val detailUrlStr = bestUrlStr ?: firstUrlStr ?: return@withContext null
+            val bestCandidate = scoredCandidates.maxByOrNull { it.score }
+            if (bestCandidate == null) {
+                Log.w("MarketDataRepo", "No matching Moneycontrol candidate found for '$fundName'")
+                return@withContext null
+            }
+            Log.d("MarketDataRepo", "Moneycontrol best candidate: '${bestCandidate.name}' (score: ${bestCandidate.score}) -> ${bestCandidate.url}")
+
+            val detailUrlStr = bestCandidate.url
             val detailRequest = okhttp3.Request.Builder()
                 .url(detailUrlStr)
                 .addHeader("User-Agent", desktopUa)
@@ -320,8 +365,59 @@ class MarketDataRepository private constructor() {
         val diagnosticLogs = mutableListOf<String>()
         val fundName = fallbackFundName?.takeIf { it.isNotBlank() } ?: cleanCode
 
-        // 1. Primary Source: Moneycontrol (Solr Search + Detail page)
-        // Provides latest NAV, change/previous close, NAV date, and expense ratio.
+        val isNumericCode = cleanCode.toIntOrNull() != null
+        val isIsin = cleanCode.startsWith("INF", ignoreCase = true)
+
+        // Tier 1 (for AMFI Scheme Codes & ISINs): AMFI Official Master Daily Feed
+        // Authoritative statutory feed in India; zero ambiguity, exact match for scheme codes (e.g. 148519).
+        if (isNumericCode || isIsin) {
+            diagnosticLogs.add("Identifier '$cleanCode' is an official AMFI code/ISIN. Querying AMFI daily master feed...")
+            val (amfiCodeMap, amfiIsinMap) = getAmfiNavMap()
+            val amfiEntry = if (isIsin) amfiIsinMap[cleanCode] else amfiCodeMap[cleanCode]
+            if (amfiEntry != null && amfiEntry.nav > 0.0) {
+                diagnosticLogs.add("AMFI Official exact match: '${amfiEntry.schemeName}' -> NAV: ₹${amfiEntry.nav} [As of ${amfiEntry.date}]")
+
+                // Optionally query Moneycontrol for previousClose and expenseRatio using the official scheme name
+                var prevClose = if (existingPrice > 0.0 && existingPrice != amfiEntry.nav) existingPrice else amfiEntry.nav
+                var ter: Double? = null
+                try {
+                    val mcLookupName = amfiEntry.schemeName.ifBlank { fundName }
+                    val mcPrices = fetchMfFromMoneycontrol(mcLookupName, cleanCode)
+                    if (mcPrices != null) {
+                        // Confirm that Moneycontrol matched the exact same fund (NAV within 5%)
+                        val diffRatio = kotlin.math.abs(mcPrices.latestPrice - amfiEntry.nav) / amfiEntry.nav
+                        if (diffRatio < 0.05) {
+                            if (mcPrices.previousClosePrice > 0.0) {
+                                prevClose = mcPrices.previousClosePrice
+                            }
+                            ter = mcPrices.expenseRatio
+                            diagnosticLogs.add("Moneycontrol confirmed scheme (NAV ₹${mcPrices.latestPrice}), prevClose: ₹$prevClose, TER: ${ter ?: "N/A"}%")
+                        } else {
+                            diagnosticLogs.add("Moneycontrol candidate had divergent NAV ₹${mcPrices.latestPrice} vs AMFI ₹${amfiEntry.nav} (discarded to avoid mismatch)")
+                        }
+                    }
+                } catch (e: Exception) {
+                    diagnosticLogs.add("Moneycontrol secondary lookup skipped: ${e.message}")
+                }
+
+                val prices = AssetPrices(
+                    latestPrice = amfiEntry.nav,
+                    previousClosePrice = prevClose,
+                    asOfDate = amfiEntry.date,
+                    source = "AMFI Official",
+                    expenseRatio = ter
+                )
+                val successMsg = "AMFI Official resolved '$cleanCode' (${amfiEntry.schemeName}) -> NAV: ₹${prices.latestPrice} [As of ${prices.asOfDate}]"
+                Log.i("MarketDataRepo", successMsg)
+                diagnosticLogs.add(successMsg)
+                return PriceFetchResult.Success(prices, "AMFI Official", diagnosticLogs)
+            } else {
+                diagnosticLogs.add("Scheme '$cleanCode' not found in AMFI master feed (${amfiCodeMap.size} schemes). Trying web search...")
+            }
+        }
+
+        // Tier 2: Moneycontrol (Solr Search + Detail page)
+        // Used when code is not in AMFI (e.g. text identifier) or AMFI feed was unreachable.
         diagnosticLogs.add("Attempting Moneycontrol for '$fundName' (code: $cleanCode)...")
         val mcPrices = fetchMfFromMoneycontrol(fundName, cleanCode)
         if (mcPrices != null && mcPrices.latestPrice > 0.0) {
@@ -337,29 +433,26 @@ class MarketDataRepository private constructor() {
             diagnosticLogs.add(failMsg)
         }
 
-        // 2. Secondary Source: AMFI Official Daily NAV feed (portal.amfiindia.com)
-        diagnosticLogs.add("Attempting AMFI official feed for identifier '$cleanCode'...")
-        val (amfiCodeMap, amfiIsinMap) = getAmfiNavMap()
-        var amfiEntry = amfiCodeMap[cleanCode]
-        if (amfiEntry == null && cleanCode.startsWith("INF", ignoreCase = true)) {
-            amfiEntry = amfiIsinMap[cleanCode]
-        }
-        if (amfiEntry != null && amfiEntry.nav > 0.0) {
-            val prevClose = if (existingPrice > 0.0 && existingPrice != amfiEntry.nav) existingPrice else amfiEntry.nav
-            val amfiPrices = AssetPrices(
-                latestPrice = amfiEntry.nav,
-                previousClosePrice = prevClose,
-                asOfDate = amfiEntry.date,
-                source = "AMFI Official"
-            )
-            val successMsg = "AMFI Official resolved '$cleanCode' (${amfiEntry.schemeName}) -> NAV: ₹${amfiEntry.nav} [As of ${amfiEntry.date}]"
-            Log.i("MarketDataRepo", successMsg)
-            diagnosticLogs.add(successMsg)
-            return PriceFetchResult.Success(amfiPrices, "AMFI Official", diagnosticLogs)
-        } else {
-            val failMsg = "AMFI Official: Scheme code/ISIN '$cleanCode' not found in official feed (${amfiCodeMap.size} schemes)"
-            Log.w("MarketDataRepo", failMsg)
-            diagnosticLogs.add(failMsg)
+        // Secondary AMFI fallback (if not already attempted because cleanCode was text)
+        if (!isNumericCode && !isIsin) {
+            val (amfiCodeMap, amfiIsinMap) = getAmfiNavMap()
+            var amfiEntry = amfiCodeMap[cleanCode]
+            if (amfiEntry == null && cleanCode.startsWith("INF", ignoreCase = true)) {
+                amfiEntry = amfiIsinMap[cleanCode]
+            }
+            if (amfiEntry != null && amfiEntry.nav > 0.0) {
+                val prevClose = if (existingPrice > 0.0 && existingPrice != amfiEntry.nav) existingPrice else amfiEntry.nav
+                val amfiPrices = AssetPrices(
+                    latestPrice = amfiEntry.nav,
+                    previousClosePrice = prevClose,
+                    asOfDate = amfiEntry.date,
+                    source = "AMFI Official"
+                )
+                val successMsg = "AMFI Official resolved '$cleanCode' (${amfiEntry.schemeName}) -> NAV: ₹${amfiEntry.nav} [As of ${amfiEntry.date}]"
+                Log.i("MarketDataRepo", successMsg)
+                diagnosticLogs.add(successMsg)
+                return PriceFetchResult.Success(amfiPrices, "AMFI Official", diagnosticLogs)
+            }
         }
 
         // 3. Tertiary Source: mfapi.in (as additional fallback)

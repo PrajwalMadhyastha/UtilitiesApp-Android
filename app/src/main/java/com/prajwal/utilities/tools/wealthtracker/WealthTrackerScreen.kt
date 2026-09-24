@@ -425,6 +425,11 @@ fun WealthTrackerScreen(
                         viewModel.syncPricesNow { msg ->
                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                         }
+                    },
+                    onRefreshHolding = { holding ->
+                        viewModel.refreshHoldingPrice(holding) { msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
                     }
                 )
 

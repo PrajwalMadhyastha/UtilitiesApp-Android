@@ -88,7 +88,7 @@ class PortfolioSyncWorker(
                                     if (holding.instrumentType == "MF") {
                                         val expRatio = prices.expenseRatio
                                         if (expRatio != null && expRatio > 0.0 && expRatio != holding.expenseRatio) {
-                                            holdingsDao.updateHolding(holding.copy(expenseRatio = expRatio))
+                                            holdingsDao.updateExpenseRatio(holding.id, expRatio)
                                             val expMsg = "Worker: Updated expense ratio for '${holding.name}': $expRatio% via ${prices.source ?: "source"}"
                                             Log.d("WealthTrackerSync", expMsg)
                                             com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", expMsg)
@@ -96,7 +96,7 @@ class PortfolioSyncWorker(
                                             try {
                                                 val fetchedExp = marketDataRepo.fetchMfExpenseRatio(holding.name, holding.identifier)
                                                 if (fetchedExp != null && fetchedExp > 0.0 && fetchedExp != holding.expenseRatio) {
-                                                    holdingsDao.updateHolding(holding.copy(expenseRatio = fetchedExp))
+                                                    holdingsDao.updateExpenseRatio(holding.id, fetchedExp)
                                                 }
                                             } catch (e: Exception) {
                                                 Log.w("WealthTrackerSync", "Worker: Failed expense ratio for '${holding.name}'", e)

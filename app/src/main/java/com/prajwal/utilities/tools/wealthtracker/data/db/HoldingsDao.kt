@@ -28,6 +28,9 @@ interface HoldingsDao {
     @Query("UPDATE holdings SET latestPrice = :price, previousClosePrice = :previousClosePrice, lastUpdatedAt = :timestamp WHERE id = :id")
     suspend fun updatePrice(id: Int, price: Double, previousClosePrice: Double, timestamp: Long = System.currentTimeMillis())
 
+    @Query("UPDATE holdings SET expenseRatio = :expenseRatio WHERE id = :id")
+    suspend fun updateExpenseRatio(id: Int, expenseRatio: Double)
+
     @Query("SELECT * FROM holdings WHERE id = :id LIMIT 1")
     suspend fun getHoldingById(id: Int): HoldingEntity?
 

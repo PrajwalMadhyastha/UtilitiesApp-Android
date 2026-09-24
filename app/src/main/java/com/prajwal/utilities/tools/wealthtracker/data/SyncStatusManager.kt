@@ -101,6 +101,55 @@ object SyncStatusManager {
         }
     }
 
+    fun updateSingleItemReport(context: Context?, updatedItem: SyncItemReport) {
+        val currentReport = _latestReport.value ?: SyncReport(
+            timestamp = System.currentTimeMillis(),
+            triggerSource = "Individual Holding Refresh",
+            durationMs = 0L,
+            successCount = 0,
+            failedCount = 0,
+            skippedCount = 0,
+            items = listOf(updatedItem)
+        )
+
+        val updatedItems = currentReport.items.map { item ->
+            if (item.holdingId == updatedItem.holdingId || (item.identifier == updatedItem.identifier && item.instrumentType == updatedItem.instrumentType)) {
+                updatedItem
+            } else {
+                item
+            }
+        }.toMutableList()
+
+        if (updatedItems.none { it.holdingId == updatedItem.holdingId }) {
+            updatedItems.add(updatedItem)
+        }
+
+        val successCount = updatedItems.count { it.status == "SUCCESS" }
+        val failedCount = updatedItems.count { it.status == "FAILED" }
+        val skippedCount = updatedItems.count { it.status == "SKIPPED" }
+
+        val newReport = currentReport.copy(
+            timestamp = System.currentTimeMillis(),
+            successCount = successCount,
+            failedCount = failedCount,
+            skippedCount = skippedCount,
+            items = updatedItems,
+            rawLogs = _inMemoryLogs.value
+        )
+        _latestReport.value = newReport
+
+        if (context != null) {
+            try {
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+                val json = moshi.adapter(SyncReport::class.java).toJson(newReport)
+                prefs.edit().putString(KEY_REPORT, json).apply()
+            } catch (e: Exception) {
+                Log.e("WealthTrackerSync", "Failed to persist updated sync report", e)
+            }
+        }
+    }
+
     fun clearLogs() {
         logQueue.clear()
         _inMemoryLogs.value = emptyList()
