@@ -33,7 +33,8 @@ data class SyncItemReport(
     val price: Double = 0.0,
     val previousClose: Double = 0.0,
     val asOfDate: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val source: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -46,7 +47,7 @@ data class SyncLogEntry(
 object SyncStatusManager {
     private const val PREFS_NAME = "wealth_sync_status_prefs"
     private const val KEY_REPORT = "latest_sync_report"
-    private const val MAX_LOGS = 400
+    private const val MAX_LOGS = 800
 
     private val _latestReport = MutableStateFlow<SyncReport?>(null)
     val latestReport: StateFlow<SyncReport?> = _latestReport.asStateFlow()

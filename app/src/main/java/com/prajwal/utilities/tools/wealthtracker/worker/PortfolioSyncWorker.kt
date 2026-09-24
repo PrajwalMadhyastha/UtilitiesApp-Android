@@ -64,65 +64,82 @@ class PortfolioSyncWorker(
                             Log.d("WealthTrackerSync", syncMsg)
                             com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", syncMsg)
 
-                            val prices = if (holding.instrumentType == "MF") {
-                                val fetchedPrices = marketDataRepo.fetchMfNav(holding.identifier, holding.name)
-                                // Fetch expense ratio in background if missing
-                                if (holding.expenseRatio <= 0.0) {
-                                    try {
-                                        val expenseRatio = marketDataRepo.fetchMfExpenseRatio(holding.name, holding.identifier)
-                                        if (expenseRatio != null && expenseRatio > 0.0 && expenseRatio != holding.expenseRatio) {
-                                            holdingsDao.updateHolding(holding.copy(expenseRatio = expenseRatio))
-                                            val expMsg = "Worker: Updated expense ratio for '${holding.name}': $expenseRatio%"
-                                            Log.d("WealthTrackerSync", expMsg)
-                                            com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", expMsg)
-                                        }
-                                    } catch (e: Exception) {
-                                        Log.w("WealthTrackerSync", "Worker: Failed expense ratio for '${holding.name}'", e)
-                                    }
-                                }
-                                fetchedPrices
+                            val fetchResult = if (holding.instrumentType == "MF") {
+                                marketDataRepo.fetchMfNav(holding.identifier, holding.name)
                             } else {
                                 marketDataRepo.fetchStockPrice(holding.identifier, holding.exchange)
                             }
 
-                            if (prices != null) {
-                                holdingsDao.updatePrice(
-                                    id = holding.id,
-                                    price = prices.latestPrice,
-                                    previousClosePrice = prices.previousClosePrice
-                                )
-                                successCounter.incrementAndGet()
-                                val dateInfo = prices.asOfDate?.let { " [As of $it]" } ?: ""
-                                val successMsg = "Worker: ✓ Updated '${holding.name}' -> ₹${prices.latestPrice}$dateInfo"
-                                Log.i("WealthTrackerSync", successMsg)
-                                com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("I", successMsg)
-                                com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
-                                    holdingId = holding.id,
-                                    holdingName = holding.name,
-                                    identifier = holding.identifier,
-                                    instrumentType = holding.instrumentType,
-                                    assetClass = holding.assetClass,
-                                    status = "SUCCESS",
-                                    price = prices.latestPrice,
-                                    previousClose = prices.previousClosePrice,
-                                    asOfDate = prices.asOfDate
-                                )
-                            } else {
-                                failedCounter.incrementAndGet()
-                                val failMsg = "Worker: ✗ Failed to update '${holding.name}' (${holding.identifier})"
-                                Log.e("WealthTrackerSync", failMsg)
-                                com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("E", failMsg)
-                                com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
-                                    holdingId = holding.id,
-                                    holdingName = holding.name,
-                                    identifier = holding.identifier,
-                                    instrumentType = holding.instrumentType,
-                                    assetClass = holding.assetClass,
-                                    status = "FAILED",
-                                    price = holding.latestPrice,
-                                    previousClose = holding.previousClosePrice,
-                                    errorMessage = "Failed to fetch price from market API"
-                                )
+                            // Log diagnostic details if any
+                            fetchResult.diagnosticLogs.forEach { dLog ->
+                                com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", "Worker:   $dLog")
+                            }
+
+                            when (fetchResult) {
+                                is com.prajwal.utilities.tools.wealthtracker.data.network.PriceFetchResult.Success -> {
+                                    val prices = fetchResult.prices
+                                    holdingsDao.updatePrice(
+                                        id = holding.id,
+                                        price = prices.latestPrice,
+                                        previousClosePrice = prices.previousClosePrice
+                                    )
+
+                                    // Update expense ratio if returned by source (e.g. Moneycontrol) and missing locally
+                                    if (holding.instrumentType == "MF") {
+                                        val expRatio = prices.expenseRatio
+                                        if (expRatio != null && expRatio > 0.0 && expRatio != holding.expenseRatio) {
+                                            holdingsDao.updateHolding(holding.copy(expenseRatio = expRatio))
+                                            val expMsg = "Worker: Updated expense ratio for '${holding.name}': $expRatio% via ${prices.source ?: "source"}"
+                                            Log.d("WealthTrackerSync", expMsg)
+                                            com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", expMsg)
+                                        } else if (holding.expenseRatio <= 0.0) {
+                                            try {
+                                                val fetchedExp = marketDataRepo.fetchMfExpenseRatio(holding.name, holding.identifier)
+                                                if (fetchedExp != null && fetchedExp > 0.0 && fetchedExp != holding.expenseRatio) {
+                                                    holdingsDao.updateHolding(holding.copy(expenseRatio = fetchedExp))
+                                                }
+                                            } catch (e: Exception) {
+                                                Log.w("WealthTrackerSync", "Worker: Failed expense ratio for '${holding.name}'", e)
+                                            }
+                                        }
+                                    }
+
+                                    successCounter.incrementAndGet()
+                                    val dateInfo = prices.asOfDate?.let { " [As of $it]" } ?: ""
+                                    val srcInfo = prices.source?.let { " (via $it)" } ?: ""
+                                    val successMsg = "Worker: ✓ Updated '${holding.name}' -> ₹${prices.latestPrice}$dateInfo$srcInfo"
+                                    Log.i("WealthTrackerSync", successMsg)
+                                    com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("I", successMsg)
+                                    com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                                        holdingId = holding.id,
+                                        holdingName = holding.name,
+                                        identifier = holding.identifier,
+                                        instrumentType = holding.instrumentType,
+                                        assetClass = holding.assetClass,
+                                        status = "SUCCESS",
+                                        price = prices.latestPrice,
+                                        previousClose = prices.previousClosePrice,
+                                        asOfDate = prices.asOfDate,
+                                        source = prices.source
+                                    )
+                                }
+                                is com.prajwal.utilities.tools.wealthtracker.data.network.PriceFetchResult.Failure -> {
+                                    failedCounter.incrementAndGet()
+                                    val failMsg = "Worker: ✗ Failed to update '${holding.name}' (${holding.identifier}): ${fetchResult.errorMessage}"
+                                    Log.e("WealthTrackerSync", failMsg)
+                                    com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("E", failMsg)
+                                    com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                                        holdingId = holding.id,
+                                        holdingName = holding.name,
+                                        identifier = holding.identifier,
+                                        instrumentType = holding.instrumentType,
+                                        assetClass = holding.assetClass,
+                                        status = "FAILED",
+                                        price = holding.latestPrice,
+                                        previousClose = holding.previousClosePrice,
+                                        errorMessage = fetchResult.errorMessage
+                                    )
+                                }
                             }
                         }
                     }

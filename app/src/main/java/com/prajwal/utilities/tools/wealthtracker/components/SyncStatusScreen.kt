@@ -425,11 +425,15 @@ private fun HoldingSyncItemCard(item: SyncItemReport) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = item.asOfDate?.let { "NAV Date: $it" } ?: "Live Price",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Column {
+                        val dateText = item.asOfDate?.let { "NAV Date: $it" } ?: "Live Price"
+                        val sourceText = if (!item.source.isNullOrBlank()) " • via ${item.source}" else ""
+                        Text(
+                            text = "$dateText$sourceText",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "LTP: ${MilestoneCalculator.formatInrExact(item.price, showDecimals = true)}",
