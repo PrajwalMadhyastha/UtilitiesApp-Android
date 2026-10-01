@@ -379,9 +379,31 @@ class MarketDataRepository private constructor() {
             if (amfiEntry != null && amfiEntry.nav > 0.0) {
                 diagnosticLogs.add("AMFI Official exact match: '${amfiEntry.schemeName}' -> NAV: ₹${amfiEntry.nav} [As of ${amfiEntry.date}]")
 
-                // Optionally query Moneycontrol for previousClose and expenseRatio using the official scheme name
-                var prevClose = if (existingPrice > 0.0 && existingPrice != amfiEntry.nav) existingPrice else amfiEntry.nav
+                // Resolve true previousClosePrice and expenseRatio
+                var prevClose = amfiEntry.nav
+                var prevCloseResolved = false
                 var ter: Double? = null
+
+                // Step 1: Query mfapi.in by exact numeric scheme code to obtain official statutory previous day NAV
+                val numCode = cleanCode.toIntOrNull()
+                if (numCode != null) {
+                    try {
+                        val mfResponse = service.getMfNav("https://api.mfapi.in/mf/$numCode")
+                        val navList = mfResponse.data ?: emptyList()
+                        if (navList.size > 1) {
+                            val officialPrev = navList[1].nav?.toDoubleOrNull()
+                            if (officialPrev != null && officialPrev > 0.0) {
+                                prevClose = officialPrev
+                                prevCloseResolved = true
+                                diagnosticLogs.add("mfapi.in provided official previous day NAV: ₹$prevClose [Date: ${navList[1].date}]")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        diagnosticLogs.add("mfapi.in previous close lookup skipped: ${e.message}")
+                    }
+                }
+
+                // Step 2: Query Moneycontrol for expense ratio and (if not yet resolved) previous close
                 try {
                     val mcLookupName = amfiEntry.schemeName.ifBlank { fundName }
                     val mcPrices = fetchMfFromMoneycontrol(mcLookupName, cleanCode)
@@ -389,8 +411,9 @@ class MarketDataRepository private constructor() {
                         // Confirm that Moneycontrol matched the exact same fund (NAV within 5%)
                         val diffRatio = kotlin.math.abs(mcPrices.latestPrice - amfiEntry.nav) / amfiEntry.nav
                         if (diffRatio < 0.05) {
-                            if (mcPrices.previousClosePrice > 0.0) {
+                            if (!prevCloseResolved && mcPrices.previousClosePrice > 0.0) {
                                 prevClose = mcPrices.previousClosePrice
+                                prevCloseResolved = true
                             }
                             ter = mcPrices.expenseRatio
                             diagnosticLogs.add("Moneycontrol confirmed scheme (NAV ₹${mcPrices.latestPrice}), prevClose: ₹$prevClose, TER: ${ter ?: "N/A"}%")
@@ -400,6 +423,19 @@ class MarketDataRepository private constructor() {
                     }
                 } catch (e: Exception) {
                     diagnosticLogs.add("Moneycontrol secondary lookup skipped: ${e.message}")
+                }
+
+                // Step 3: Only fallback to existingPrice if it is plausible (within 10% of today's NAV).
+                // Never use an existing price that is >10% divergent (e.g. old imported/corrupted price)
+                // as that corrupts Day's P/L calculations.
+                if (!prevCloseResolved && existingPrice > 0.0 && existingPrice != amfiEntry.nav) {
+                    val divergence = kotlin.math.abs(amfiEntry.nav - existingPrice) / existingPrice
+                    if (divergence < 0.10) {
+                        prevClose = existingPrice
+                        diagnosticLogs.add("Using plausible existing price as fallback prevClose: ₹$prevClose")
+                    } else {
+                        diagnosticLogs.add("Existing price ₹$existingPrice diverged by ${(divergence * 100).toInt()}% (>10%), ignoring to protect Day's P/L")
+                    }
                 }
 
                 val prices = AssetPrices(
@@ -485,7 +521,7 @@ class MarketDataRepository private constructor() {
                 amfiEntry = amfiIsinMap[cleanCode]
             }
             if (amfiEntry != null && amfiEntry.nav > 0.0) {
-                val prevClose = if (existingPrice > 0.0 && existingPrice != amfiEntry.nav) existingPrice else amfiEntry.nav
+                val prevClose = if (existingPrice > 0.0 && existingPrice != amfiEntry.nav && kotlin.math.abs(amfiEntry.nav - existingPrice) / existingPrice < 0.10) existingPrice else amfiEntry.nav
                 val amfiPrices = AssetPrices(
                     latestPrice = amfiEntry.nav,
                     previousClosePrice = prevClose,

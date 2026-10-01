@@ -102,7 +102,8 @@ data class DailyCategorySummary(
                 currentValue = curVal,
                 dayGain = dayGain,
                 dayGainPct = dayGainPct,
-                hasValidPrice = hasValidPrice
+                hasValidPrice = hasValidPrice,
+                prevCloseValue = prevCloseTotal
             )
         }
     }
@@ -116,5 +117,6 @@ data class DailyCategoryItem(
     val currentValue: Double,
     val dayGain: Double,
     val dayGainPct: Double,
-    val hasValidPrice: Boolean
+    val hasValidPrice: Boolean,
+    val prevCloseValue: Double = 0.0
 )

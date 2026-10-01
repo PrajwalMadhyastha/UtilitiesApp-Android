@@ -47,9 +47,7 @@ fun DayPLBreakdownCard(
     // Compute Overall Portfolio Totals
     val totalCur = categories.sumOf { it.currentValue }
     val totalDayGain = categories.sumOf { it.dayGain }
-    val totalPrevClose = categories.sumOf {
-        if (it.hasValidPrice) (it.currentValue - it.dayGain) else 0.0
-    }
+    val totalPrevClose = categories.sumOf { it.prevCloseValue }
     val totalDayGainPct = if (totalPrevClose > 0) (totalDayGain / totalPrevClose) * 100 else 0.0
     val totalPositive = totalDayGain >= 0
     val totalColor = if (totalPositive) Color(0xFF16A34A) else MaterialTheme.colorScheme.error
