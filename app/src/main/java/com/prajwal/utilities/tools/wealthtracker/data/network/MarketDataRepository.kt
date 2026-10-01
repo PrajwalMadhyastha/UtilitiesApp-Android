@@ -265,7 +265,9 @@ class MarketDataRepository private constructor() {
                     // 4. Overlap Score:
                     var score = 0
                     if (queryAmc != null && candLower.contains(queryAmc)) score += 10
-                    if (isDirectFund && candDirect) score += 5
+                    // Strongly prefer Direct Plan (+5) when user didn't explicitly ask for Regular Plan,
+                    // as portfolio tracking apps predominantly track direct mutual funds in India.
+                    if (candDirect && (!isRegularFund || isDirectFund)) score += 5
                     for (token in queryTokens) {
                         if (candLower.contains(token)) {
                             score += 2
@@ -412,7 +414,49 @@ class MarketDataRepository private constructor() {
                 diagnosticLogs.add(successMsg)
                 return PriceFetchResult.Success(prices, "AMFI Official", diagnosticLogs)
             } else {
-                diagnosticLogs.add("Scheme '$cleanCode' not found in AMFI master feed (${amfiCodeMap.size} schemes). Trying web search...")
+                diagnosticLogs.add("Scheme '$cleanCode' not found in AMFI master feed (${amfiCodeMap.size} schemes). Trying exact API lookup...")
+            }
+        }
+
+        // Tier 1.5: If identifier is a numeric AMFI code and AMFI master feed was unavailable or scheme wasn't in it,
+        // query mfapi.in by exact numeric scheme code before falling back to fuzzy text search.
+        val numericSchemeCode = cleanCode.toIntOrNull()
+        if (numericSchemeCode != null) {
+            diagnosticLogs.add("Attempting exact numeric scheme lookup on mfapi.in for code $numericSchemeCode...")
+            try {
+                val url = "https://api.mfapi.in/mf/$numericSchemeCode"
+                val response = service.getMfNav(url)
+                val navs = response.data ?: emptyList()
+                if (navs.isNotEmpty()) {
+                    val latestNavData = navs[0]
+                    val latest = latestNavData.nav?.toDoubleOrNull() ?: 0.0
+                    val latestDate = latestNavData.date ?: "N/A"
+                    val prevNavData = if (navs.size > 1) navs[1] else latestNavData
+                    val previous = prevNavData.nav?.toDoubleOrNull() ?: latest
+
+                    if (latest > 0.0) {
+                        var ter: Double? = null
+                        try {
+                            val resolvedName = response.meta?.schemeName ?: fundName
+                            val mcPrices = fetchMfFromMoneycontrol(resolvedName, cleanCode)
+                            if (mcPrices != null && kotlin.math.abs(mcPrices.latestPrice - latest) / latest < 0.05) {
+                                ter = mcPrices.expenseRatio
+                            }
+                        } catch (e: Exception) {
+                            // Secondary scrape failure is non-fatal
+                        }
+
+                        val prices = AssetPrices(latest, previous, latestDate, source = "mfapi.in", expenseRatio = ter)
+                        val successMsg = "mfapi.in resolved exact code [$numericSchemeCode] (${response.meta?.schemeName ?: fundName}) -> NAV: ₹$latest [As of $latestDate]"
+                        Log.i("MarketDataRepo", successMsg)
+                        diagnosticLogs.add(successMsg)
+                        return PriceFetchResult.Success(prices, "mfapi.in", diagnosticLogs)
+                    }
+                } else {
+                    diagnosticLogs.add("mfapi.in returned empty data for code $numericSchemeCode")
+                }
+            } catch (e: Exception) {
+                diagnosticLogs.add("mfapi.in lookup for code $numericSchemeCode failed: ${e.message}")
             }
         }
 
