@@ -704,15 +704,23 @@ fun TopUpDialog(
     onDismiss: () -> Unit,
     onSave: (Double, Double, Long) -> Unit
 ) {
+    val isMf = holding.instrumentType == "MF"
     var newUnitsStr by remember { mutableStateOf("") }
-    var newInvestedStr by remember { mutableStateOf("") }
+    var secondFieldStr by remember {
+        mutableStateOf(
+            if (!isMf && holding.latestPrice > 0) holding.latestPrice.toString() else ""
+        )
+    }
     var selectedDateMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var showDatePicker by remember { mutableStateOf(false) }
     var saveAttempted by remember { mutableStateOf(false) }
 
     val dateFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-    val unitsError = saveAttempted && (newUnitsStr.toDoubleOrNull() ?: 0.0) <= 0.0
-    val investedError = saveAttempted && (newInvestedStr.toDoubleOrNull() ?: 0.0) <= 0.0
+    val unitsVal = newUnitsStr.toDoubleOrNull() ?: 0.0
+    val secondVal = secondFieldStr.toDoubleOrNull() ?: 0.0
+
+    val unitsError = saveAttempted && unitsVal <= 0.0
+    val secondFieldError = saveAttempted && secondVal <= 0.0
 
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
@@ -749,7 +757,12 @@ fun TopUpDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Current Units: ${holding.unitsHeld}\nCurrent Invested: ${MilestoneCalculator.formatInrExact(holding.investedAmount)}",
+                    buildString {
+                        append("Current Units: ${holding.unitsHeld}\nCurrent Invested: ${MilestoneCalculator.formatInrExact(holding.investedAmount)}")
+                        if (holding.latestPrice > 0) {
+                            append("\n${if (isMf) "Latest NAV" else "Market Price"}: ${MilestoneCalculator.formatInrExact(holding.latestPrice, showDecimals = true)}")
+                        }
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -781,31 +794,74 @@ fun TopUpDialog(
                 OutlinedTextField(
                     value = newUnitsStr,
                     onValueChange = { newUnitsStr = it; saveAttempted = false },
-                    label = { Text("New Units Bought") },
+                    label = { Text(if (isMf) "New Units Bought" else "Number of Units") },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
                     isError = unitsError,
                     supportingText = if (unitsError) {{ Text("Enter a valid number of units greater than 0") }} else null
                 )
                 OutlinedTextField(
-                    value = newInvestedStr,
-                    onValueChange = { newInvestedStr = it; saveAttempted = false },
-                    label = { Text("New Amount Invested (₹)") },
+                    value = secondFieldStr,
+                    onValueChange = { secondFieldStr = it; saveAttempted = false },
+                    label = { Text(if (isMf) "New Amount Invested (₹)" else "Price per Unit (₹)") },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                     singleLine = true,
-                    isError = investedError,
-                    supportingText = if (investedError) {{ Text("Enter the amount invested in ₹") }} else null
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = secondFieldError,
+                    supportingText = if (secondFieldError) {
+                        { Text(if (isMf) "Enter the amount invested in ₹" else "Enter a valid price greater than 0") }
+                    } else if (isMf && holding.latestPrice > 0) {
+                        { Text("Latest NAV: ${MilestoneCalculator.formatInrExact(holding.latestPrice, showDecimals = true)}") }
+                    } else if (!isMf && holding.latestPrice > 0 && secondFieldStr != holding.latestPrice.toString()) {
+                        { Text("Market Price: ${MilestoneCalculator.formatInrExact(holding.latestPrice, showDecimals = true)}") }
+                    } else null
                 )
+
+                if (unitsVal > 0 && secondVal > 0) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isMf) "Allotment NAV:" else "Total Investment:",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = if (isMf) {
+                                    val allotmentNav = secondVal / unitsVal
+                                    "₹${"%.4f".format(Locale.US, allotmentNav)}"
+                                } else {
+                                    val totalAmount = unitsVal * secondVal
+                                    MilestoneCalculator.formatInrExact(totalAmount, showDecimals = true)
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF16A34A)
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
                     saveAttempted = true
-                    val newUnits = newUnitsStr.toDoubleOrNull() ?: 0.0
-                    val newInv = newInvestedStr.toDoubleOrNull() ?: 0.0
-                    if (newUnits > 0 && newInv > 0) {
-                        onSave(newUnits, newInv, selectedDateMillis)
+                    val units = newUnitsStr.toDoubleOrNull() ?: 0.0
+                    val second = secondFieldStr.toDoubleOrNull() ?: 0.0
+                    if (units > 0 && second > 0) {
+                        val totalInvested = if (isMf) second else (units * second)
+                        onSave(units, totalInvested, selectedDateMillis)
                     }
                 }
             ) {

@@ -24,12 +24,28 @@ import java.util.Locale
 fun AddEditTransactionDialog(
     holdingName: String,
     initialTransaction: TransactionEntity? = null,
+    instrumentType: String = "Stock",
+    latestPrice: Double = 0.0,
     onDismiss: () -> Unit,
     onSave: (TransactionEntity) -> Unit
 ) {
+    val isMf = instrumentType == "MF"
     var type by remember { mutableStateOf(initialTransaction?.type ?: TransactionType.BUY) }
     var unitsStr by remember { mutableStateOf(initialTransaction?.units?.toString() ?: "") }
-    var priceStr by remember { mutableStateOf(initialTransaction?.pricePerUnit?.toString() ?: "") }
+    var secondFieldStr by remember {
+        mutableStateOf(
+            if (initialTransaction != null) {
+                if (isMf) {
+                    val amt = initialTransaction.units * initialTransaction.pricePerUnit
+                    if (amt > 0) "%.2f".format(Locale.US, amt) else ""
+                } else {
+                    initialTransaction.pricePerUnit.toString()
+                }
+            } else {
+                if (!isMf && latestPrice > 0) latestPrice.toString() else ""
+            }
+        )
+    }
     var selectedDateMillis by remember {
         mutableLongStateOf(initialTransaction?.timestamp ?: System.currentTimeMillis())
     }
@@ -39,11 +55,17 @@ fun AddEditTransactionDialog(
     val dateFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
 
     val units = unitsStr.toDoubleOrNull() ?: 0.0
-    val price = priceStr.toDoubleOrNull() ?: 0.0
-    val totalAmount = units * price
+    val secondVal = secondFieldStr.toDoubleOrNull() ?: 0.0
 
     val unitsError = saveAttempted && units <= 0.0
-    val priceError = saveAttempted && price <= 0.0
+    val secondValueError = saveAttempted && secondVal <= 0.0
+
+    val pricePerUnit = if (isMf) {
+        if (units > 0) secondVal / units else 0.0
+    } else {
+        secondVal
+    }
+    val totalAmount = if (isMf) secondVal else (units * secondVal)
 
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
@@ -149,7 +171,7 @@ fun AddEditTransactionDialog(
                 OutlinedTextField(
                     value = unitsStr,
                     onValueChange = { unitsStr = it; saveAttempted = false },
-                    label = { Text("Number of Units") },
+                    label = { Text(if (isMf) "New Units Bought" else "Number of Units") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
                     isError = unitsError,
@@ -157,40 +179,89 @@ fun AddEditTransactionDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Price per Unit Field
+                // Second Field: Price per unit for non-MF, Total Amount for MF
                 OutlinedTextField(
-                    value = priceStr,
-                    onValueChange = { priceStr = it; saveAttempted = false },
-                    label = { Text("Price per Unit (₹)") },
+                    value = secondFieldStr,
+                    onValueChange = { secondFieldStr = it; saveAttempted = false },
+                    label = {
+                        Text(
+                            if (isMf) {
+                                if (type == TransactionType.BUY) "Amount Invested (₹)" else "Amount Received (₹)"
+                            } else {
+                                "Price per Unit (₹)"
+                            }
+                        )
+                    },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     singleLine = true,
-                    isError = priceError,
-                    supportingText = if (priceError) { { Text("Enter a valid price > 0") } } else null,
+                    isError = secondValueError,
+                    supportingText = if (secondValueError) {
+                        { Text(if (isMf) "Enter a valid amount > 0" else "Enter a valid price > 0") }
+                    } else if (isMf && latestPrice > 0) {
+                        { Text("Latest NAV: ${MilestoneCalculator.formatInrExact(latestPrice, showDecimals = true)}") }
+                    } else if (!isMf && latestPrice > 0 && secondFieldStr != latestPrice.toString()) {
+                        { Text("Market Price: ${MilestoneCalculator.formatInrExact(latestPrice, showDecimals = true)}") }
+                    } else null,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Total Amount preview card
-                if (units > 0 && price > 0) {
+                // Summary preview card
+                if (units > 0 && secondVal > 0) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                         )
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text("Total Amount:", style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                MilestoneCalculator.formatInrExact(totalAmount, showDecimals = true),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (type == TransactionType.BUY) Color(0xFF16A34A) else MaterialTheme.colorScheme.error
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (isMf) {
+                                        if (type == TransactionType.BUY) "Allotment NAV:" else "Redemption NAV:"
+                                    } else {
+                                        "Total Amount:"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Text(
+                                    text = if (isMf) {
+                                        "₹${"%.4f".format(Locale.US, pricePerUnit)}"
+                                    } else {
+                                        MilestoneCalculator.formatInrExact(totalAmount, showDecimals = true)
+                                    },
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (type == TransactionType.BUY) Color(0xFF16A34A) else MaterialTheme.colorScheme.error
+                                )
+                            }
+                            if (isMf) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Total Cash Flow:",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        text = MilestoneCalculator.formatInrExact(totalAmount, showDecimals = true),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (type == TransactionType.BUY) Color(0xFF16A34A) else MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -200,14 +271,14 @@ fun AddEditTransactionDialog(
             Button(
                 onClick = {
                     saveAttempted = true
-                    if (units > 0 && price > 0) {
+                    if (units > 0 && secondVal > 0) {
                         onSave(
                             TransactionEntity(
                                 id = initialTransaction?.id ?: 0,
                                 holdingId = initialTransaction?.holdingId ?: 0,
                                 timestamp = selectedDateMillis,
                                 units = units,
-                                pricePerUnit = price,
+                                pricePerUnit = pricePerUnit,
                                 type = type
                             )
                         )

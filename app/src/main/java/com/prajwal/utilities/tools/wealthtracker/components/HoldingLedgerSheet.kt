@@ -61,6 +61,8 @@ fun HoldingLedgerSheet(
         AddEditTransactionDialog(
             holdingName = holding.name.ifBlank { holding.identifier },
             initialTransaction = transactionToEdit,
+            instrumentType = holding.instrumentType,
+            latestPrice = holding.latestPrice,
             onDismiss = {
                 showAddDialog = false
                 transactionToEdit = null
