@@ -624,13 +624,39 @@ class MarketDataRepository private constructor() {
         if (ticker.startsWith("SGB", ignoreCase = true)) {
             return fetchSgbPrice(ticker, exchange)
         }
+
+        val diagnosticLogs = mutableListOf<String>()
+        val cleanTicker = ticker.trim().uppercase()
+
+        // ── Tier 1: Moneycontrol JSON Price Feed ─────────────────────────────────
+        // For broad market indices (^NSEI / NIFTY 50, ^BSESN / SENSEX), use the dedicated
+        // Moneycontrol indices endpoint: https://priceapi.moneycontrol.com/pricefeed/notapplicable/inidicesindia/{ID}
+        // For individual equities, use their autocomplete to resolve sc_id and hit:
+        // https://priceapi.moneycontrol.com/pricefeed/{nse|bse}/equitycash/{SC_ID}
+        val indexId = resolveMoneycontrolIndexId(cleanTicker)
+        val mcResult = if (indexId != null) {
+            diagnosticLogs.add("Attempting Moneycontrol index feed for '$cleanTicker' ($indexId)...")
+            fetchIndexFromMoneycontrol(indexId, diagnosticLogs)
+        } else {
+            diagnosticLogs.add("Attempting Moneycontrol price feed for '$cleanTicker' ($exchange)...")
+            fetchStockFromMoneycontrol(cleanTicker, exchange, diagnosticLogs)
+        }
+
+        if (mcResult != null) {
+            return PriceFetchResult.Success(
+                prices = mcResult,
+                source = "Moneycontrol",
+                diagnosticLogs = diagnosticLogs
+            )
+        }
+
+        // ── Tier 2: Yahoo Finance fallback ────────────────────────────────────────
+        diagnosticLogs.add("Moneycontrol failed. Falling back to Yahoo Finance...")
         val symbol = resolveYahooSymbol(ticker, exchange)
         val encodedSymbol = symbol.replace("^", "%5E")
-        val diagnosticLogs = mutableListOf<String>()
-
         return try {
             val url = "https://query2.finance.yahoo.com/v8/finance/chart/$encodedSymbol"
-            Log.d("MarketDataRepo", "Fetching stock price from $url")
+            Log.d("MarketDataRepo", "Fetching stock price from Yahoo Finance: $url")
             val response = service.getYahooChart(url)
             val meta = response.chart?.result?.firstOrNull()?.meta
             if (meta?.regularMarketPrice != null && meta.regularMarketPrice > 0.0) {
@@ -645,23 +671,248 @@ class MarketDataRepository private constructor() {
                     diagnosticLogs = diagnosticLogs
                 )
             } else {
-                val err = "Yahoo Finance: Chart response contained null or zero market price for '$symbol'"
+                val err = "Yahoo Finance: null/zero market price for '$symbol'"
                 Log.w("MarketDataRepo", err)
                 diagnosticLogs.add(err)
-                PriceFetchResult.Failure(err, diagnosticLogs)
+                PriceFetchResult.Failure(
+                    errorMessage = "All sources failed for '$cleanTicker': ${diagnosticLogs.lastOrNull()}",
+                    diagnosticLogs = diagnosticLogs
+                )
             }
         } catch (e: retrofit2.HttpException) {
-            val err = "Yahoo Finance: HTTP ${e.code()} (${e.message()}) for '$symbol'"
+            val err = "Yahoo Finance: HTTP ${e.code()} for '$symbol'"
             Log.e("MarketDataRepo", err, e)
             diagnosticLogs.add(err)
-            PriceFetchResult.Failure(err, diagnosticLogs)
+            PriceFetchResult.Failure("All sources failed for '$cleanTicker': $err", diagnosticLogs)
         } catch (e: Exception) {
             val err = "Yahoo Finance error for '$symbol': ${e.message ?: e.javaClass.simpleName}"
             Log.e("MarketDataRepo", err, e)
             diagnosticLogs.add(err)
-            PriceFetchResult.Failure(err, diagnosticLogs)
+            PriceFetchResult.Failure("All sources failed for '$cleanTicker': $err", diagnosticLogs)
         }
     }
+
+    /**
+     * Tier 1 stock price fetch via Moneycontrol's JSON pricefeed API.
+     *
+     * Flow:
+     *  1. Search Moneycontrol autosuggestion to resolve the SC_ID (e.g. "RI" for RELIANCE)
+     *  2. Pick the best result by matching the NSE ticker symbol in the `pdt_dis_nm` field
+     *  3. Hit priceapi.moneycontrol.com/pricefeed/{exchange}/{segment}/{sc_id}
+     *  4. Parse `pricecurrent` (LTP) and `priceprevclose` from the clean JSON response
+     */
+    private suspend fun fetchStockFromMoneycontrol(
+        ticker: String,
+        exchange: String?,
+        diagnosticLogs: MutableList<String>
+    ): AssetPrices? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val desktopUa = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            val encodedQuery = java.net.URLEncoder.encode(ticker, "UTF-8")
+
+            // Step 1: Resolve Moneycontrol SC_ID via autocomplete search (type=1 for equities)
+            val searchUrl = "https://www.moneycontrol.com/mccode/common/autosuggestion_solr.php?query=$encodedQuery&type=1&format=json"
+            val searchRequest = okhttp3.Request.Builder()
+                .url(searchUrl)
+                .addHeader("User-Agent", desktopUa)
+                .addHeader("Accept", "application/json")
+                .addHeader("Referer", "https://www.moneycontrol.com/")
+                .build()
+
+            val searchResponse = sharedOkHttpClient.newCall(searchRequest).execute()
+            if (!searchResponse.isSuccessful) {
+                diagnosticLogs.add("Moneycontrol autocomplete HTTP ${searchResponse.code()} for '$ticker'")
+                return@withContext null
+            }
+
+            val searchBody = searchResponse.body()?.string() ?: ""
+            if (searchBody.isBlank() || searchBody.trimStart().startsWith("{")) {
+                diagnosticLogs.add("Moneycontrol autocomplete: empty/invalid body for '$ticker'")
+                return@withContext null
+            }
+
+            // Parse JSON array to extract sc_id — pick result where pdt_dis_nm contains the ticker
+            val moshi = com.squareup.moshi.Moshi.Builder()
+                .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()
+            val listType = com.squareup.moshi.Types.newParameterizedType(
+                List::class.java, MoneycontrolSearchResult::class.java
+            )
+            val adapter = moshi.adapter<List<MoneycontrolSearchResult>>(listType)
+            val results = runCatching { adapter.fromJson(searchBody) }.getOrNull() ?: run {
+                diagnosticLogs.add("Moneycontrol autocomplete: JSON parse failed for '$ticker'")
+                return@withContext null
+            }
+
+            if (results.isNullOrEmpty()) {
+                diagnosticLogs.add("Moneycontrol autocomplete: no results for '$ticker'")
+                return@withContext null
+            }
+
+            // Prefer exact NSE ticker match in the pdt_dis_nm string (contains NSE symbol),
+            // then fall back to first result.
+            val best = results.firstOrNull { r ->
+                r.pdtDisNm?.contains(ticker, ignoreCase = true) == true
+            } ?: results.first()
+
+            val scId = best.scId
+            if (scId.isNullOrBlank()) {
+                diagnosticLogs.add("Moneycontrol autocomplete: no sc_id in result for '$ticker'")
+                return@withContext null
+            }
+
+            diagnosticLogs.add("Moneycontrol sc_id resolved for '$ticker': '$scId' (${best.name})")
+
+            // Step 2: Fetch live price from Moneycontrol pricefeed JSON endpoint
+            val exchangeSegment = when (exchange?.trim()?.uppercase()) {
+                "BSE" -> "bse"
+                else -> "nse" // NSE is default for Indian equities
+            }
+            val priceUrl = "https://priceapi.moneycontrol.com/pricefeed/$exchangeSegment/equitycash/$scId"
+            val priceRequest = okhttp3.Request.Builder()
+                .url(priceUrl)
+                .addHeader("User-Agent", desktopUa)
+                .addHeader("Accept", "application/json")
+                .addHeader("Referer", "https://www.moneycontrol.com/")
+                .build()
+
+            val priceResponse = sharedOkHttpClient.newCall(priceRequest).execute()
+            if (!priceResponse.isSuccessful) {
+                diagnosticLogs.add("Moneycontrol pricefeed HTTP ${priceResponse.code()} for sc_id '$scId'")
+                return@withContext null
+            }
+
+            val priceBody = priceResponse.body()?.string() ?: ""
+            val priceAdapter = moshi.adapter(MoneycontrolPriceResponse::class.java)
+            val priceObj = runCatching {
+                priceAdapter.fromJson(priceBody)
+            }.getOrNull() ?: run {
+                diagnosticLogs.add("Moneycontrol pricefeed: JSON parse failed for sc_id '$scId'")
+                return@withContext null
+            }
+
+            if (priceObj.code != "200") {
+                diagnosticLogs.add("Moneycontrol pricefeed: non-200 code for sc_id '$scId': ${priceObj.message}")
+                return@withContext null
+            }
+
+            val data = priceObj.data ?: run {
+                diagnosticLogs.add("Moneycontrol pricefeed: missing 'data' for sc_id '$scId'")
+                return@withContext null
+            }
+
+            val currentPrice = data.priceCurrent?.toDoubleOrNull()
+                ?: data.highPrice?.toDoubleOrNull() // HP = day high, last resort
+            val prevClose = data.pricePrevClose?.toDoubleOrNull()
+
+            if (currentPrice == null || currentPrice <= 0.0) {
+                diagnosticLogs.add("Moneycontrol pricefeed: zero/null pricecurrent for sc_id '$scId'")
+                return@withContext null
+            }
+
+            val resolvedPrevClose = prevClose?.takeIf { it > 0.0 } ?: currentPrice
+            val msg = "Moneycontrol resolved '$ticker' (sc_id=$scId) -> Price: ₹$currentPrice, PrevClose: ₹$resolvedPrevClose"
+            Log.i("MarketDataRepo", msg)
+            diagnosticLogs.add(msg)
+
+            AssetPrices(
+                latestPrice = currentPrice,
+                previousClosePrice = resolvedPrevClose,
+                source = "Moneycontrol"
+            )
+        } catch (e: Exception) {
+            val err = "Moneycontrol stock fetch exception for '$ticker': ${e.message ?: e.javaClass.simpleName}"
+            Log.w("MarketDataRepo", err)
+            diagnosticLogs.add(err)
+            null
+        }
+    }
+
+    /**
+     * Maps common index symbols or names to Moneycontrol's internal index IDs.
+     */
+    private fun resolveMoneycontrolIndexId(ticker: String): String? {
+        val clean = ticker.trim().uppercase()
+        return when {
+            clean == "^NSEI" || clean == "NIFTY 50" || clean == "NIFTY" || clean == "NIFTY50" -> "in;NSX"
+            clean == "^BSESN" || clean == "SENSEX" || clean == "BSE SENSEX" -> "in;SEN"
+            clean == "^NSEBANK" || clean == "BANKNIFTY" || clean == "NIFTY BANK" -> "in;nbx"
+            else -> null
+        }
+    }
+
+    /**
+     * Fetches live index value and previous close from Moneycontrol's JSON indices feed:
+     *   https://priceapi.moneycontrol.com/pricefeed/notapplicable/inidicesindia/{indexId}
+     */
+    private suspend fun fetchIndexFromMoneycontrol(
+        indexId: String,
+        diagnosticLogs: MutableList<String>
+    ): AssetPrices? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val desktopUa = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            val encodedId = java.net.URLEncoder.encode(indexId, "UTF-8")
+            val priceUrl = "https://priceapi.moneycontrol.com/pricefeed/notapplicable/inidicesindia/$encodedId"
+            val priceRequest = okhttp3.Request.Builder()
+                .url(priceUrl)
+                .addHeader("User-Agent", desktopUa)
+                .addHeader("Accept", "application/json")
+                .addHeader("Referer", "https://www.moneycontrol.com/")
+                .build()
+
+            val priceResponse = sharedOkHttpClient.newCall(priceRequest).execute()
+            if (!priceResponse.isSuccessful) {
+                diagnosticLogs.add("Moneycontrol index HTTP ${priceResponse.code()} for index '$indexId'")
+                return@withContext null
+            }
+
+            val priceBody = priceResponse.body()?.string() ?: ""
+            val moshi = com.squareup.moshi.Moshi.Builder()
+                .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()
+            val priceAdapter = moshi.adapter(MoneycontrolPriceResponse::class.java)
+            val priceObj = runCatching {
+                priceAdapter.fromJson(priceBody)
+            }.getOrNull() ?: run {
+                diagnosticLogs.add("Moneycontrol index: JSON parse failed for index '$indexId'")
+                return@withContext null
+            }
+
+            if (priceObj.code != "200") {
+                diagnosticLogs.add("Moneycontrol index: non-200 code for index '$indexId': ${priceObj.message}")
+                return@withContext null
+            }
+
+            val data = priceObj.data ?: run {
+                diagnosticLogs.add("Moneycontrol index: missing 'data' for index '$indexId'")
+                return@withContext null
+            }
+
+            val currentPrice = data.priceCurrent?.toDoubleOrNull()
+                ?: data.highPrice?.toDoubleOrNull()
+            val prevClose = data.pricePrevClose?.toDoubleOrNull()
+
+            if (currentPrice == null || currentPrice <= 0.0) {
+                diagnosticLogs.add("Moneycontrol index: zero/null pricecurrent for index '$indexId'")
+                return@withContext null
+            }
+
+            val resolvedPrevClose = prevClose?.takeIf { it > 0.0 } ?: currentPrice
+            val msg = "Moneycontrol index resolved '$indexId' -> Value: $currentPrice, PrevClose: $resolvedPrevClose"
+            Log.i("MarketDataRepo", msg)
+            diagnosticLogs.add(msg)
+
+            AssetPrices(
+                latestPrice = currentPrice,
+                previousClosePrice = resolvedPrevClose,
+                source = "Moneycontrol"
+            )
+        } catch (e: Exception) {
+            val err = "Moneycontrol index fetch exception for '$indexId': ${e.message ?: e.javaClass.simpleName}"
+            Log.w("MarketDataRepo", err)
+            diagnosticLogs.add(err)
+            null
+        }
+    }
+
 
     /**
      * FIX #5: Multi-source SGB price fetching with Yahoo Finance as primary.

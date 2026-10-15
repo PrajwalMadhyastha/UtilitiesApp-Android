@@ -698,7 +698,7 @@ class WealthTrackerViewModel(
                                 val successMsg = "✓ Updated '${holding.name}' -> Price: ₹${prices.latestPrice}$dateInfo$sourceInfo, Prev Close: ₹${prices.previousClosePrice}"
                                 Log.i("WealthTrackerSync", successMsg)
                                 com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("I", successMsg)
-                                com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                                val itemReport = com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
                                     holdingId = holding.id,
                                     holdingName = holding.name,
                                     identifier = holding.identifier,
@@ -710,6 +710,8 @@ class WealthTrackerViewModel(
                                     asOfDate = prices.asOfDate,
                                     source = prices.source
                                 )
+                                com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.updateSingleItemReport(prefs.context, itemReport)
+                                itemReport
                             } else if (result is com.prajwal.utilities.tools.wealthtracker.data.network.PriceFetchResult.Failure) {
                                 failedCounter.incrementAndGet()
                                 val failMsg = "✗ Failed to update prices for '${holding.name}' (Type: ${holding.instrumentType}, Identifier: ${holding.identifier}) - Reason: ${result.errorMessage}"
@@ -718,7 +720,7 @@ class WealthTrackerViewModel(
                                 result.diagnosticLogs.forEach { diag ->
                                     com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.log("D", "  └─ $diag")
                                 }
-                                com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                                val itemReport = com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
                                     holdingId = holding.id,
                                     holdingName = holding.name,
                                     identifier = holding.identifier,
@@ -729,9 +731,11 @@ class WealthTrackerViewModel(
                                     previousClose = holding.previousClosePrice,
                                     errorMessage = result.errorMessage
                                 )
+                                com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.updateSingleItemReport(prefs.context, itemReport)
+                                itemReport
                             } else {
                                 failedCounter.incrementAndGet()
-                                com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
+                                val itemReport = com.prajwal.utilities.tools.wealthtracker.data.SyncItemReport(
                                     holdingId = holding.id,
                                     holdingName = holding.name,
                                     identifier = holding.identifier,
@@ -742,6 +746,8 @@ class WealthTrackerViewModel(
                                     previousClose = holding.previousClosePrice,
                                     errorMessage = "Unknown fetch failure"
                                 )
+                                com.prajwal.utilities.tools.wealthtracker.data.SyncStatusManager.updateSingleItemReport(prefs.context, itemReport)
+                                itemReport
                             }
                         }
                     }

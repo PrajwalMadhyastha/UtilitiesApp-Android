@@ -290,6 +290,11 @@ fun PortfolioTab(
             }
         }
 
+        // ── NIFTY 50 Market Index card ─────────────
+        item {
+            Nifty50Card(prices = nifty50Prices)
+        }
+
         // ── Month-over-Month (MoM) / Snapshot Growth Delta ─────────────
         if (snapshots.size >= 2) {
             item {
@@ -308,11 +313,6 @@ fun PortfolioTab(
                 includeRetirement = includeRetirement,
                 initialExpanded = true
             )
-        }
-
-        // ── NIFTY 50 Market Index card ─────────────
-        item {
-            Nifty50Card(prices = nifty50Prices)
         }
 
         // ── Asset Breakdown ───────────────────────────────────────────────
