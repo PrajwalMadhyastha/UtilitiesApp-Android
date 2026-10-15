@@ -506,8 +506,9 @@ fun HoldingCard(
                         fontWeight = FontWeight.Bold
                     )
                     val feeText = if (holding.instrumentType == "MF" && holding.expenseRatio > 0.0) " • ${holding.expenseRatio}% TER" else ""
+                    val exchText = if (holding.instrumentType != "MF" && !holding.exchange.isNullOrBlank()) " • ${holding.exchange}" else ""
                     Text(
-                        "${holding.instrumentType} • ${holding.unitsHeld} units$feeText",
+                        "${holding.instrumentType}$exchText • ${holding.unitsHeld} units$feeText",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

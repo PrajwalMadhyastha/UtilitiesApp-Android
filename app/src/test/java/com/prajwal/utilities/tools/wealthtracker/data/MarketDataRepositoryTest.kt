@@ -44,7 +44,7 @@ class MarketDataRepositoryTest {
         println("Fetched Source: ${success.source}")
         println("Diagnostic Logs: ${success.diagnosticLogs.joinToString("\n")}")
 
-        assertEquals("Moneycontrol", success.source)
+        assertEquals("Moneycontrol (NSE)", success.source)
         assertTrue("Reliance stock price should be > 1000", success.prices.latestPrice > 1000.0)
         assertTrue("Prev close should be > 1000", success.prices.previousClosePrice > 1000.0)
     }
@@ -62,8 +62,46 @@ class MarketDataRepositoryTest {
         println("Fetched Prev Close: ${success.prices.previousClosePrice}")
         println("Fetched Source: ${success.source}")
 
-        assertEquals("Moneycontrol", success.source)
+        assertEquals("Moneycontrol (NSE)", success.source)
         assertTrue("TCS stock price should be > 2000", success.prices.latestPrice > 2000.0)
+    }
+
+    @Test
+    fun testAsianPaintsNseAndBsePrices() = runBlocking {
+        val repo = MarketDataRepository.getInstance()
+        
+        val nseResult = repo.fetchStockPrice(ticker = "ASIANPAINT", exchange = "NSE")
+        assertTrue("Expected NSE Success", nseResult is PriceFetchResult.Success)
+        val nseSuccess = nseResult as PriceFetchResult.Success
+        println("ASIANPAINT NSE: ${nseSuccess.prices.latestPrice} via ${nseSuccess.source}")
+        assertEquals("Moneycontrol (NSE)", nseSuccess.source)
+        assertEquals(2350.00, nseSuccess.prices.latestPrice, 1.0)
+
+        val bseResult = repo.fetchStockPrice(ticker = "ASIANPAINT", exchange = "BSE")
+        assertTrue("Expected BSE Success", bseResult is PriceFetchResult.Success)
+        val bseSuccess = bseResult as PriceFetchResult.Success
+        println("ASIANPAINT BSE: ${bseSuccess.prices.latestPrice} via ${bseSuccess.source}")
+        assertEquals("Moneycontrol (BSE)", bseSuccess.source)
+        assertEquals(2356.50, bseSuccess.prices.latestPrice, 1.0)
+    }
+
+    @Test
+    fun testEternalNseAndBsePrices() = runBlocking {
+        val repo = MarketDataRepository.getInstance()
+        
+        val nseResult = repo.fetchStockPrice(ticker = "ETERNAL", exchange = "NSE")
+        assertTrue("Expected NSE Success", nseResult is PriceFetchResult.Success)
+        val nseSuccess = nseResult as PriceFetchResult.Success
+        println("ETERNAL NSE: ${nseSuccess.prices.latestPrice} via ${nseSuccess.source}")
+        assertEquals("Moneycontrol (NSE)", nseSuccess.source)
+        assertEquals(323.00, nseSuccess.prices.latestPrice, 1.0)
+
+        val bseResult = repo.fetchStockPrice(ticker = "ETERNAL", exchange = "BSE")
+        assertTrue("Expected BSE Success", bseResult is PriceFetchResult.Success)
+        val bseSuccess = bseResult as PriceFetchResult.Success
+        println("ETERNAL BSE: ${bseSuccess.prices.latestPrice} via ${bseSuccess.source}")
+        assertEquals("Moneycontrol (BSE)", bseSuccess.source)
+        assertEquals(324.35, bseSuccess.prices.latestPrice, 1.0)
     }
 
     @Test

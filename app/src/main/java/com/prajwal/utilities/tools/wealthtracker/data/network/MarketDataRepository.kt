@@ -645,7 +645,7 @@ class MarketDataRepository private constructor() {
         if (mcResult != null) {
             return PriceFetchResult.Success(
                 prices = mcResult,
-                source = "Moneycontrol",
+                source = mcResult.source ?: "Moneycontrol",
                 diagnosticLogs = diagnosticLogs
             )
         }
@@ -810,14 +810,15 @@ class MarketDataRepository private constructor() {
             }
 
             val resolvedPrevClose = prevClose?.takeIf { it > 0.0 } ?: currentPrice
-            val msg = "Moneycontrol resolved '$ticker' (sc_id=$scId) -> Price: ₹$currentPrice, PrevClose: ₹$resolvedPrevClose"
+            val exchUpper = exchangeSegment.uppercase()
+            val msg = "Moneycontrol ($exchUpper) resolved '$ticker' (sc_id=$scId) -> Price: ₹$currentPrice, PrevClose: ₹$resolvedPrevClose"
             Log.i("MarketDataRepo", msg)
             diagnosticLogs.add(msg)
 
             AssetPrices(
                 latestPrice = currentPrice,
                 previousClosePrice = resolvedPrevClose,
-                source = "Moneycontrol"
+                source = "Moneycontrol ($exchUpper)"
             )
         } catch (e: Exception) {
             val err = "Moneycontrol stock fetch exception for '$ticker': ${e.message ?: e.javaClass.simpleName}"
@@ -1095,6 +1096,7 @@ class MarketDataRepository private constructor() {
                             exchange = exchange
                         )
                     }
+                    .sortedBy { if (it.exchange == "NSE") 0 else 1 }
             }
         } catch (e: Exception) {
             Log.e("MarketDataRepo", "Asset search failed for '$query'", e)
