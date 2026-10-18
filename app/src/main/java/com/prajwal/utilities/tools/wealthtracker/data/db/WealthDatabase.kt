@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [AssetSnapshotEntity::class, HoldingEntity::class, TransactionEntity::class],
-    version = 5,
+    entities = [AssetSnapshotEntity::class, HoldingEntity::class, TransactionEntity::class, DividendEventEntity::class],
+    version = 11,
     // FIX #6: exportSchema = true lets Room generate JSON schema files under app/schemas/.
     // These are required for MigrationTestHelper — without them, every DB schema change
     // is unverifiable and risks silent data loss in production.
@@ -90,6 +90,74 @@ abstract class WealthDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `holdings` ADD COLUMN `isManual` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `asset_snapshots` ADD COLUMN `retirementInvested` REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE `asset_snapshots` ADD COLUMN `retirementCurrent` REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `holdings` ADD COLUMN `expenseRatio` REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `dividend_events` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `symbol` TEXT NOT NULL,
+                        `exDate` INTEGER NOT NULL,
+                        `amount` REAL NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_dividend_events_symbol` ON `dividend_events` (`symbol`)")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add a unique index on (symbol, exDate) to make upserts atomic per dividend event.
+                // This prevents duplicate rows if a sync is interrupted and retried.
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_dividend_events_symbol_exDate` ON `dividend_events` (`symbol`, `exDate`)"
+                )
+            }
+        }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add the isPassive column
+                db.execSQL("ALTER TABLE `holdings` ADD COLUMN `isPassive` INTEGER NOT NULL DEFAULT 0")
+                
+                // Auto-categorize existing holdings based on name heuristics
+                db.execSQL(
+                    """
+                    UPDATE `holdings`
+                    SET `isPassive` = 1
+                    WHERE `name` LIKE '%Index%'
+                       OR `name` LIKE '%ETF%'
+                       OR `name` LIKE '%Nifty%'
+                       OR `name` LIKE '%Sensex%'
+                       OR `name` LIKE '%Equal Weight%'
+                       OR `name` LIKE '%Next 50%'
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `asset_snapshots` ADD COLUMN `arbitrageInvested` REAL NOT NULL DEFAULT 0.0")
+                db.execSQL("ALTER TABLE `asset_snapshots` ADD COLUMN `arbitrageCurrent` REAL NOT NULL DEFAULT 0.0")
+            }
+        }
+
         fun getDatabase(context: Context): WealthDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -97,7 +165,12 @@ abstract class WealthDatabase : RoomDatabase() {
                     WealthDatabase::class.java,
                     "wealth_tracker_database"
                 )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, 
+                    MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+                    MIGRATION_10_11
+                )
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .build()
                 INSTANCE = instance
                 instance

@@ -28,12 +28,39 @@ interface HoldingsDao {
     @Query("UPDATE holdings SET latestPrice = :price, previousClosePrice = :previousClosePrice, lastUpdatedAt = :timestamp WHERE id = :id")
     suspend fun updatePrice(id: Int, price: Double, previousClosePrice: Double, timestamp: Long = System.currentTimeMillis())
 
+    @Query("UPDATE holdings SET expenseRatio = :expenseRatio WHERE id = :id")
+    suspend fun updateExpenseRatio(id: Int, expenseRatio: Double)
+
+    @Query("SELECT * FROM holdings WHERE id = :id LIMIT 1")
+    suspend fun getHoldingById(id: Int): HoldingEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: TransactionEntity)
+
+    @Update
+    suspend fun updateTransaction(transaction: TransactionEntity)
+
+    @Delete
+    suspend fun deleteTransaction(transaction: TransactionEntity)
 
     @Query("SELECT * FROM transactions WHERE holdingId = :holdingId ORDER BY timestamp ASC")
     fun getTransactionsForHolding(holdingId: Int): Flow<List<TransactionEntity>>
 
+    @Query("SELECT * FROM transactions WHERE holdingId = :holdingId ORDER BY timestamp ASC")
+    suspend fun getTransactionsForHoldingSync(holdingId: Int): List<TransactionEntity>
+
     @Query("SELECT * FROM transactions ORDER BY timestamp ASC")
     fun getAllTransactions(): Flow<List<TransactionEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDividendEvents(events: List<DividendEventEntity>)
+
+    @Query("SELECT * FROM dividend_events ORDER BY exDate DESC")
+    fun getAllDividendEvents(): Flow<List<DividendEventEntity>>
+
+    @Query("SELECT * FROM dividend_events WHERE symbol = :symbol ORDER BY exDate DESC")
+    suspend fun getDividendEventsForSymbol(symbol: String): List<DividendEventEntity>
+
+    @Query("DELETE FROM dividend_events WHERE symbol = :symbol")
+    suspend fun deleteDividendEventsForSymbol(symbol: String)
 }

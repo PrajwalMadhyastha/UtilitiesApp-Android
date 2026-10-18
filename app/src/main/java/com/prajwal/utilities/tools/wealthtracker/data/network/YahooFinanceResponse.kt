@@ -15,7 +15,19 @@ data class YahooChart(
 
 @JsonClass(generateAdapter = true)
 data class YahooResult(
-    @Json(name = "meta") val meta: YahooMeta? = null
+    @Json(name = "meta") val meta: YahooMeta? = null,
+    @Json(name = "events") val events: YahooEvents? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class YahooEvents(
+    @Json(name = "dividends") val dividends: Map<String, YahooDividend>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class YahooDividend(
+    @Json(name = "amount") val amount: Double,
+    @Json(name = "date") val date: Long
 )
 
 @JsonClass(generateAdapter = true)

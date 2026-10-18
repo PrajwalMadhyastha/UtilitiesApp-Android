@@ -19,6 +19,7 @@ class UsageTrackerApp : Application() {
         
         Log.d(TAG, "Application started, scheduling background worker")
         scheduleUsageWorker()
+        scheduleDailyPortfolioSync()
     }
     
     private fun scheduleUsageWorker() {
@@ -38,5 +39,26 @@ class UsageTrackerApp : Application() {
         )
         
         Log.d(TAG, "Background worker scheduled (15-minute intervals)")
+    }
+
+    private fun scheduleDailyPortfolioSync() {
+        val now = java.time.ZonedDateTime.now(java.time.ZoneId.systemDefault())
+        var nextSixAM = now.withHour(6).withMinute(0).withSecond(0).withNano(0)
+        if (now.isAfter(nextSixAM)) {
+            nextSixAM = nextSixAM.plusDays(1)
+        }
+        val initialDelayMillis = java.time.Duration.between(now, nextSixAM).toMillis()
+
+        val syncRequest = PeriodicWorkRequestBuilder<com.prajwal.utilities.tools.wealthtracker.worker.PortfolioSyncWorker>(1, TimeUnit.DAYS)
+            .setInitialDelay(initialDelayMillis, TimeUnit.MILLISECONDS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "WealthTrackerSync",
+            ExistingPeriodicWorkPolicy.UPDATE,
+            syncRequest
+        )
+        Log.d(TAG, "Portfolio sync worker scheduled (Daily 6 AM, initial delay $initialDelayMillis ms)")
     }
 }

@@ -9,7 +9,7 @@ import com.squareup.moshi.JsonClass
 data class HoldingEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0,
-    val assetClass: String, // "Equity", "Gold", "Debt", "Silver", "REITs"
+    val assetClass: String, // "Equity", "Arbitrage", "Gold", "Debt", "Silver", "REITs", "Retirement"
     val instrumentType: String, // "Stock", "MF", "SGB"
     val name: String, // Human readable name
     val identifier: String, // Ticker or Scheme Code
@@ -18,5 +18,8 @@ data class HoldingEntity(
     val investedAmount: Double,
     val latestPrice: Double = 0.0,
     val previousClosePrice: Double = 0.0,
-    val lastUpdatedAt: Long = System.currentTimeMillis()
+    val lastUpdatedAt: Long = System.currentTimeMillis(),
+    val isManual: Boolean = false,
+    val expenseRatio: Double = 0.0,
+    val isPassive: Boolean = false
 )

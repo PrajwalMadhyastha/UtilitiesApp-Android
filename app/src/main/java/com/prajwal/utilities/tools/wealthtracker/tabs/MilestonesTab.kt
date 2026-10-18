@@ -37,8 +37,10 @@ private val milestoneTargets = listOf(
 fun MilestonesTab(
     latestSnapshot: AssetSnapshotEntity?,
     settings: CalculatorSettings,
+    includeRetirement: Boolean,
     onMonthlyInvestmentChange: (Double) -> Unit,
     onStepupChange: (Double) -> Unit,
+    onStepupMonthChange: (Int) -> Unit,
     onReturnChange: (Double) -> Unit
 ) {
     // FIX #20: Show a clear empty state instead of a projection based on ₹0.
@@ -73,8 +75,8 @@ fun MilestonesTab(
         return
     }
 
-    val currentPortfolioValue = latestSnapshot.totalCurrent
-    val totalInvested = latestSnapshot.totalInvested
+    val currentPortfolioValue = latestSnapshot.getTotalCurrent(includeRetirement)
+    val totalInvested = latestSnapshot.getTotalInvested(includeRetirement)
 
 
     var monthlyText by remember(settings.monthlyInvestment) {
@@ -92,6 +94,7 @@ fun MilestonesTab(
             currentPortfolioValue = currentPortfolioValue,
             monthlySip = settings.monthlyInvestment,
             annualStepupPct = settings.annualStepupPercent,
+            stepupMonth = settings.stepupMonth,
             annualReturnPct = settings.expectedReturnPercent,
             targets = milestoneTargets.map { it.second }
         )
@@ -173,6 +176,11 @@ fun MilestonesTab(
                         suffix = "% per year",
                         onValueChange = { stepupText = it },
                         onDone = { stepupText.toDoubleOrNull()?.let(onStepupChange) }
+                    )
+                    MonthDropdownField(
+                        label = "Step-Up Month",
+                        selectedMonth = settings.stepupMonth,
+                        onMonthSelected = onStepupMonthChange
                     )
                     SettingField(
                         label = "Expected Annual Return",
@@ -312,6 +320,59 @@ private fun SettingField(
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyMedium
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MonthDropdownField(
+    label: String,
+    selectedMonth: Int,
+    onMonthSelected: (Int) -> Unit
+) {
+    val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+            Text("Month", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+            modifier = Modifier.width(130.dp)
+        ) {
+            OutlinedTextField(
+                value = months.getOrElse(selectedMonth - 1) { "Apr" },
+                onValueChange = {},
+                readOnly = true,
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                modifier = Modifier.menuAnchor(),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                months.forEachIndexed { index, month ->
+                    DropdownMenuItem(
+                        text = { Text(month) },
+                        onClick = {
+                            onMonthSelected(index + 1)
+                            expanded = false
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 

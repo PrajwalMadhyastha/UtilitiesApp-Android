@@ -1,5 +1,6 @@
 package com.prajwal.utilities.tools.wealthtracker.tabs
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,10 +9,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
@@ -22,13 +26,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import com.prajwal.utilities.tools.wealthtracker.components.HoldingLedgerSheet
 import com.prajwal.utilities.tools.wealthtracker.data.MilestoneCalculator
-import com.prajwal.utilities.tools.wealthtracker.data.db.HoldingEntity
 import com.prajwal.utilities.tools.wealthtracker.data.SortOption
+import com.prajwal.utilities.tools.wealthtracker.data.XirrCalculator
+import com.prajwal.utilities.tools.wealthtracker.data.db.HoldingEntity
 import com.prajwal.utilities.tools.wealthtracker.data.network.AssetSearchResult
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+import com.prajwal.utilities.tools.wealthtracker.data.network.AssetPrices
 
 @Composable
 fun HoldingsTab(
@@ -38,17 +46,26 @@ fun HoldingsTab(
     searchResults: List<AssetSearchResult>,
     sortOption: SortOption,
     sortAscending: Boolean,
+    nifty50Prices: AssetPrices? = null,
     onSortOptionChanged: (SortOption) -> Unit,
     onSearchQueryChanged: (String, Boolean) -> Unit,
     onAddHolding: (HoldingEntity) -> Unit,
     onUpdateHolding: (HoldingEntity) -> Unit,
-    onTopUpHolding: (HoldingEntity, Double, Double) -> Unit,
+    onTopUpHolding: (HoldingEntity, Double, Double, Long) -> Unit,
+    onSellHolding: (HoldingEntity, Double, Double, Long) -> Unit,
     onDeleteHolding: (HoldingEntity) -> Unit,
-    onSyncNow: () -> Unit
+    onAddTransaction: (Int, com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) -> Unit,
+    onUpdateTransaction: (com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) -> Unit,
+    onDeleteTransaction: (com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) -> Unit,
+    onSyncNow: () -> Unit,
+    onRefreshHolding: ((HoldingEntity) -> Unit)? = null
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var showAddManualDialog by remember { mutableStateOf(false) }
     var holdingToEdit by remember { mutableStateOf<HoldingEntity?>(null) }
     var holdingToTopUp by remember { mutableStateOf<HoldingEntity?>(null) }
+    var holdingToSell by remember { mutableStateOf<HoldingEntity?>(null) }
+    var holdingForLedger by remember { mutableStateOf<HoldingEntity?>(null) }
     // FIX #18: Guard deletion behind a confirmation dialog (mirrors snapshot deletion in PortfolioTab)
     var holdingToDelete by remember { mutableStateOf<HoldingEntity?>(null) }
 
@@ -73,18 +90,52 @@ fun HoldingsTab(
         )
     }
 
+    holdingForLedger?.let { selectedHolding ->
+        val currentHolding = holdings.firstOrNull { it.id == selectedHolding.id } ?: selectedHolding
+        HoldingLedgerSheet(
+            holding = currentHolding,
+            transactions = transactions.filter { it.holdingId == currentHolding.id },
+            onDismiss = { holdingForLedger = null },
+            onAddTransaction = { tx -> onAddTransaction(currentHolding.id, tx) },
+            onUpdateTransaction = onUpdateTransaction,
+            onDeleteTransaction = onDeleteTransaction,
+            onRefreshHolding = if (onRefreshHolding != null) { { onRefreshHolding(currentHolding) } } else null
+        )
+    }
+
     if (holdingToTopUp != null) {
         TopUpDialog(
             holding = holdingToTopUp!!,
             onDismiss = { holdingToTopUp = null },
-            onSave = { addedUnits, addedInvested ->
-                onTopUpHolding(holdingToTopUp!!, addedUnits, addedInvested)
+            onSave = { addedUnits, addedInvested, timestamp ->
+                onTopUpHolding(holdingToTopUp!!, addedUnits, addedInvested, timestamp)
                 holdingToTopUp = null
             }
         )
     }
 
-    if (showAddDialog || holdingToEdit != null) {
+    if (holdingToSell != null) {
+        SellDialog(
+            holding = holdingToSell!!,
+            onDismiss = { holdingToSell = null },
+            onSave = { unitsToSell, sellPrice, timestamp ->
+                onSellHolding(holdingToSell!!, unitsToSell, sellPrice, timestamp)
+                holdingToSell = null
+            }
+        )
+    }
+
+    if (showAddManualDialog || (holdingToEdit != null && holdingToEdit!!.isManual)) {
+        AddManualHoldingDialog(
+            holdingToEdit = holdingToEdit,
+            onDismiss = { showAddManualDialog = false; holdingToEdit = null },
+            onSave = {
+                if (holdingToEdit != null) onUpdateHolding(it) else onAddHolding(it)
+                showAddManualDialog = false
+                holdingToEdit = null
+            }
+        )
+    } else if (showAddDialog || holdingToEdit != null) {
         AddHoldingDialog(
             holdingToEdit = holdingToEdit,
             searchResults = searchResults,
@@ -118,7 +169,7 @@ fun HoldingsTab(
                     var showSortMenu by remember { mutableStateOf(false) }
                     Box {
                         IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.Default.Sort, contentDescription = "Sort")
+                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
                         }
                         DropdownMenu(
                             expanded = showSortMenu,
@@ -172,8 +223,10 @@ fun HoldingsTab(
                 }
             }
 
+            Nifty50Card(prices = nifty50Prices, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+
             // Filters
-            val assetClassFilters = listOf("All", "Equity", "Debt", "Gold", "Silver", "REITs")
+            val assetClassFilters = listOf("All", "Equity", "Arbitrage", "Debt", "Gold", "Silver", "REITs")
             val instrumentFilters = listOf("All", "Stocks", "Mutual Funds", "SGBs")
             
             var selectedAssetClass by remember { mutableStateOf("All") }
@@ -377,8 +430,11 @@ fun HoldingsTab(
                                 holding = holding,
                                 transactions = transactions.filter { it.holdingId == holding.id },
                                 onTopUp = { holdingToTopUp = holding },
+                                onSell = { holdingToSell = holding },
                                 onEdit = { holdingToEdit = holding },
-                                onDelete = { holdingToDelete = holding }
+                                onDelete = { holdingToDelete = holding },
+                                onOpenLedger = { holdingForLedger = holding },
+                                onRefresh = if (onRefreshHolding != null) { { onRefreshHolding(holding) } } else null
                             )
                         }
                     }
@@ -386,13 +442,30 @@ fun HoldingsTab(
             }
         }
 
-        FloatingActionButton(
-            onClick = { showAddDialog = true },
+        var showAddMenu by remember { mutableStateOf(false) }
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(24.dp)
         ) {
-            Icon(Icons.Default.Add, contentDescription = "Add Holding")
+            FloatingActionButton(
+                onClick = { showAddMenu = true }
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add Holding")
+            }
+            DropdownMenu(
+                expanded = showAddMenu,
+                onDismissRequest = { showAddMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Add Market Holding") },
+                    onClick = { showAddMenu = false; showAddDialog = true }
+                )
+                DropdownMenuItem(
+                    text = { Text("Add Manual Holding") },
+                    onClick = { showAddMenu = false; showAddManualDialog = true }
+                )
+            }
         }
     }
 }
@@ -402,20 +475,22 @@ fun HoldingCard(
     holding: HoldingEntity, 
     transactions: List<com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity>,
     onTopUp: () -> Unit, 
+    onSell: () -> Unit,
     onEdit: () -> Unit, 
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onOpenLedger: () -> Unit,
+    onRefresh: (() -> Unit)? = null
 ) {
     val currentVal = holding.unitsHeld * holding.latestPrice
     val gain = currentVal - holding.investedAmount
     val gainPct = if (holding.investedAmount > 0) (gain / holding.investedAmount) * 100 else 0.0
-    val xirr = if (holding.latestPrice > 0 && transactions.isNotEmpty()) {
-        com.prajwal.utilities.tools.wealthtracker.data.XirrCalculator.calculateXirr(transactions, currentVal)
-    } else 0.0
     
     val sdf = remember { SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault()) }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenLedger),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -430,13 +505,18 @@ fun HoldingCard(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
+                    val feeText = if (holding.instrumentType == "MF" && holding.expenseRatio > 0.0) " • ${holding.expenseRatio}% TER" else ""
+                    val exchText = if (holding.instrumentType != "MF" && !holding.exchange.isNullOrBlank()) " • ${holding.exchange}" else ""
                     Text(
-                        "${holding.instrumentType} • ${holding.unitsHeld} units",
+                        "${holding.instrumentType}$exchText • ${holding.unitsHeld} units$feeText",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 Row {
+                    IconButton(onClick = onSell) {
+                        Icon(Icons.Default.RemoveCircleOutline, contentDescription = "Sell", tint = MaterialTheme.colorScheme.error)
+                    }
                     IconButton(onClick = onTopUp) {
                         Icon(Icons.Default.AddCircleOutline, contentDescription = "Top Up", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -513,20 +593,31 @@ fun HoldingCard(
                 Spacer(Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        "Last sync: ${sdf.format(Date(holding.lastUpdatedAt))}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Column(horizontalAlignment = Alignment.End) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "XIRR: ${"%.2f".format(xirr * 100)}%",
+                            "Last sync: ${sdf.format(Date(holding.lastUpdatedAt))}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (!holding.isManual && onRefresh != null) {
+                            Spacer(Modifier.width(4.dp))
+                            IconButton(
+                                onClick = onRefresh,
+                                modifier = Modifier.size(22.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    contentDescription = "Refresh holding price",
+                                    modifier = Modifier.size(13.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
                         Text(
                             "${if (gain >= 0) "+" else "-"}${MilestoneCalculator.formatInrExact(kotlin.math.abs(gain))} (${"%.2f".format(gainPct)}%)",
                             style = MaterialTheme.typography.labelMedium,
@@ -536,57 +627,354 @@ fun HoldingCard(
                     }
                 }
             } else {
-                // FIX #22 / hint: tell user why values are missing instead of silent "-"
-                Text(
-                    "Prices not yet synced — tap \"Sync Live\" to fetch live prices",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "Prices not yet synced — tap refresh to fetch live prices",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (!holding.isManual && onRefresh != null) {
+                        IconButton(
+                            onClick = onRefresh,
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Refresh holding price",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = onOpenLedger,
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ReceiptLong,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "${transactions.size} trades • View Ledger",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                val holdingXirr = remember(transactions, currentVal) {
+                    if (transactions.isNotEmpty() && currentVal > 0) {
+                        XirrCalculator.calculateXirr(transactions, currentVal)
+                    } else 0.0
+                }
+                if (holdingXirr != 0.0 && !holdingXirr.isNaN()) {
+                    Text(
+                        text = "XIRR: ${if (holdingXirr >= 0) "+" else ""}${"%.2f".format(holdingXirr * 100)}%",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = if (holdingXirr >= 0) Color(0xFF16A34A) else MaterialTheme.colorScheme.error
+                    )
+                }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TopUpDialog(
     holding: HoldingEntity,
     onDismiss: () -> Unit,
-    onSave: (Double, Double) -> Unit
+    onSave: (Double, Double, Long) -> Unit
 ) {
+    val isMf = holding.instrumentType == "MF"
     var newUnitsStr by remember { mutableStateOf("") }
-    var newInvestedStr by remember { mutableStateOf("") }
-    // FIX #17: Track validation state so user gets clear errors instead of silent nothing
+    var secondFieldStr by remember {
+        mutableStateOf(
+            if (!isMf && holding.latestPrice > 0) holding.latestPrice.toString() else ""
+        )
+    }
+    var selectedDateMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var showDatePicker by remember { mutableStateOf(false) }
     var saveAttempted by remember { mutableStateOf(false) }
-    val unitsError = saveAttempted && (newUnitsStr.toDoubleOrNull() ?: 0.0) <= 0.0
-    val investedError = saveAttempted && (newInvestedStr.toDoubleOrNull() ?: 0.0) <= 0.0
+
+    val dateFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val unitsVal = newUnitsStr.toDoubleOrNull() ?: 0.0
+    val secondVal = secondFieldStr.toDoubleOrNull() ?: 0.0
+
+    val unitsError = saveAttempted && unitsVal <= 0.0
+    val secondFieldError = saveAttempted && secondVal <= 0.0
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        val nowCalendar = java.util.Calendar.getInstance()
+                        val selectedCalendar = java.util.Calendar.getInstance().apply { timeInMillis = it }
+                        selectedCalendar.set(java.util.Calendar.HOUR_OF_DAY, nowCalendar.get(java.util.Calendar.HOUR_OF_DAY))
+                        selectedCalendar.set(java.util.Calendar.MINUTE, nowCalendar.get(java.util.Calendar.MINUTE))
+                        selectedCalendar.set(java.util.Calendar.SECOND, nowCalendar.get(java.util.Calendar.SECOND))
+                        selectedDateMillis = selectedCalendar.timeInMillis
+                    }
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Top-Up ${holding.name.ifBlank { holding.identifier }}") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "Current Units: ${holding.unitsHeld}\nCurrent Invested: ${MilestoneCalculator.formatInrExact(holding.investedAmount)}",
+                    buildString {
+                        append("Current Units: ${holding.unitsHeld}\nCurrent Invested: ${MilestoneCalculator.formatInrExact(holding.investedAmount)}")
+                        if (holding.latestPrice > 0) {
+                            append("\n${if (isMf) "Latest NAV" else "Market Price"}: ${MilestoneCalculator.formatInrExact(holding.latestPrice, showDecimals = true)}")
+                        }
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                OutlinedCard(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Purchase Date", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(dateFmt.format(Date(selectedDateMillis)), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = "Select Date",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = newUnitsStr,
                     onValueChange = { newUnitsStr = it; saveAttempted = false },
-                    label = { Text("New Units Bought") },
+                    label = { Text(if (isMf) "New Units Bought" else "Number of Units") },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                     singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
                     isError = unitsError,
                     supportingText = if (unitsError) {{ Text("Enter a valid number of units greater than 0") }} else null
                 )
                 OutlinedTextField(
-                    value = newInvestedStr,
-                    onValueChange = { newInvestedStr = it; saveAttempted = false },
-                    label = { Text("New Amount Invested (₹)") },
+                    value = secondFieldStr,
+                    onValueChange = { secondFieldStr = it; saveAttempted = false },
+                    label = { Text(if (isMf) "New Amount Invested (₹)" else "Price per Unit (₹)") },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
                     singleLine = true,
-                    isError = investedError,
-                    supportingText = if (investedError) {{ Text("Enter the amount invested in ₹") }} else null
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = secondFieldError,
+                    supportingText = if (secondFieldError) {
+                        { Text(if (isMf) "Enter the amount invested in ₹" else "Enter a valid price greater than 0") }
+                    } else if (isMf && holding.latestPrice > 0) {
+                        { Text("Latest NAV: ${MilestoneCalculator.formatInrExact(holding.latestPrice, showDecimals = true)}") }
+                    } else if (!isMf && holding.latestPrice > 0 && secondFieldStr != holding.latestPrice.toString()) {
+                        { Text("Market Price: ${MilestoneCalculator.formatInrExact(holding.latestPrice, showDecimals = true)}") }
+                    } else null
+                )
+
+                if (unitsVal > 0 && secondVal > 0) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isMf) "Allotment NAV:" else "Total Investment:",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = if (isMf) {
+                                    val allotmentNav = secondVal / unitsVal
+                                    "₹${"%.4f".format(Locale.US, allotmentNav)}"
+                                } else {
+                                    val totalAmount = unitsVal * secondVal
+                                    MilestoneCalculator.formatInrExact(totalAmount, showDecimals = true)
+                                },
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF16A34A)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    saveAttempted = true
+                    val units = newUnitsStr.toDoubleOrNull() ?: 0.0
+                    val second = secondFieldStr.toDoubleOrNull() ?: 0.0
+                    if (units > 0 && second > 0) {
+                        val totalInvested = if (isMf) second else (units * second)
+                        onSave(units, totalInvested, selectedDateMillis)
+                    }
+                }
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SellDialog(
+    holding: HoldingEntity,
+    onDismiss: () -> Unit,
+    onSave: (Double, Double, Long) -> Unit
+) {
+    var unitsStr by remember { mutableStateOf(holding.unitsHeld.toString()) }
+    var priceStr by remember { mutableStateOf(if (holding.latestPrice > 0) holding.latestPrice.toString() else "") }
+    var selectedDateMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var saveAttempted by remember { mutableStateOf(false) }
+
+    val dateFmt = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val unitsError = saveAttempted && ((unitsStr.toDoubleOrNull() ?: 0.0) <= 0.0 || (unitsStr.toDoubleOrNull() ?: 0.0) > holding.unitsHeld)
+    val priceError = saveAttempted && (priceStr.toDoubleOrNull() ?: 0.0) <= 0.0
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        val nowCalendar = java.util.Calendar.getInstance()
+                        val selectedCalendar = java.util.Calendar.getInstance().apply { timeInMillis = it }
+                        selectedCalendar.set(java.util.Calendar.HOUR_OF_DAY, nowCalendar.get(java.util.Calendar.HOUR_OF_DAY))
+                        selectedCalendar.set(java.util.Calendar.MINUTE, nowCalendar.get(java.util.Calendar.MINUTE))
+                        selectedCalendar.set(java.util.Calendar.SECOND, nowCalendar.get(java.util.Calendar.SECOND))
+                        selectedDateMillis = selectedCalendar.timeInMillis
+                    }
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Sell ${holding.name.ifBlank { holding.identifier }}") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "You own ${holding.unitsHeld} units.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedCard(
+                    onClick = { showDatePicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Sale Date", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(dateFmt.format(Date(selectedDateMillis)), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        Icon(
+                            imageVector = Icons.Default.CalendarToday,
+                            contentDescription = "Select Date",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = unitsStr,
+                    onValueChange = { unitsStr = it; saveAttempted = false },
+                    label = { Text("Units to Sell") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    singleLine = true,
+                    isError = unitsError,
+                    supportingText = if (unitsError) {
+                        { Text(if ((unitsStr.toDoubleOrNull() ?: 0.0) > holding.unitsHeld) "Cannot sell more than you own" else "Enter a valid number") }
+                    } else null
+                )
+                OutlinedTextField(
+                    value = priceStr,
+                    onValueChange = { priceStr = it; saveAttempted = false },
+                    label = { Text("Selling Price (per unit)") },
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                    singleLine = true,
+                    isError = priceError,
+                    supportingText = if (priceError) {{ Text("Enter a valid price greater than 0") }} else null
                 )
             }
         },
@@ -594,14 +982,14 @@ fun TopUpDialog(
             TextButton(
                 onClick = {
                     saveAttempted = true
-                    val newUnits = newUnitsStr.toDoubleOrNull() ?: 0.0
-                    val newInv = newInvestedStr.toDoubleOrNull() ?: 0.0
-                    if (newUnits > 0 && newInv > 0) {
-                        onSave(newUnits, newInv)
+                    val units = unitsStr.toDoubleOrNull() ?: 0.0
+                    val price = priceStr.toDoubleOrNull() ?: 0.0
+                    if (units > 0 && units <= holding.unitsHeld && price > 0) {
+                        onSave(units, price, selectedDateMillis)
                     }
                 }
             ) {
-                Text("Save")
+                Text("Sell", color = MaterialTheme.colorScheme.error)
             }
         },
         dismissButton = {

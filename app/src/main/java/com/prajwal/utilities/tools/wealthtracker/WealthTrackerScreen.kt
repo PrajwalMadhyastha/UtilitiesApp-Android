@@ -14,6 +14,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.fragment.app.FragmentActivity
@@ -48,12 +50,17 @@ fun WealthTrackerScreen(
     val snapshots by viewModel.snapshots.collectAsState()
     val snapshotsChronological by viewModel.snapshotsChronological.collectAsState()
     val transactions by viewModel.transactions.collectAsState()
+    val dividendEvents by viewModel.dividendEvents.collectAsState()
     val calculatorSettings by viewModel.calculatorSettings.collectAsState()
     val holdings by viewModel.holdings.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val holdingsSortOption by viewModel.holdingsSortOption.collectAsState()
     val holdingsSortAscending by viewModel.holdingsSortAscending.collectAsState()
+    val autoSnapshotEnabled by viewModel.autoSnapshotEnabled.collectAsState()
+    val autoSnapshotDayOfMonth by viewModel.autoSnapshotDayOfMonth.collectAsState()
+    val includeRetirementInTotal by viewModel.includeRetirementInTotal.collectAsState()
+    val nifty50Prices by viewModel.nifty50Prices.collectAsState()
     var selectedTab by remember { mutableStateOf(WealthTab.PORTFOLIO) }
 
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
@@ -108,8 +115,81 @@ fun WealthTrackerScreen(
         )
     }
 
+    var showAutoSnapshotDialog by remember { mutableStateOf(false) }
+
+    if (showAutoSnapshotDialog) {
+        var localEnabled by remember { mutableStateOf(autoSnapshotEnabled) }
+        var localDay by remember { mutableStateOf(autoSnapshotDayOfMonth.toString()) }
+        var inputError by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showAutoSnapshotDialog = false },
+            title = { Text("Auto Snapshot Settings") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        "Automatically take a portfolio snapshot once a month on your chosen day after a background sync completes.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Enable Auto Snapshots")
+                        Switch(checked = localEnabled, onCheckedChange = { localEnabled = it })
+                    }
+                    if (localEnabled) {
+                        OutlinedTextField(
+                            value = localDay,
+                            onValueChange = { 
+                                localDay = it
+                                val day = it.toIntOrNull()
+                                inputError = day == null || day !in 1..31
+                            },
+                            label = { Text("Day of Month (1-31)") },
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            isError = inputError,
+                            supportingText = if (inputError) { { Text("Enter a valid day between 1 and 31") } } else null
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (!inputError) {
+                            viewModel.updateAutoSnapshotEnabled(localEnabled)
+                            localDay.toIntOrNull()?.let { viewModel.updateAutoSnapshotDayOfMonth(it) }
+                            showAutoSnapshotDialog = false
+                        }
+                    },
+                    enabled = !inputError
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAutoSnapshotDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     val currentIsAuthenticated by rememberUpdatedState(isAuthenticated)
     val currentIsBiometricEnabled by rememberUpdatedState(isBiometricEnabled)
+
+    var showSyncStatusScreen by remember { mutableStateOf(false) }
+
+    if (showSyncStatusScreen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showSyncStatusScreen = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            com.prajwal.utilities.tools.wealthtracker.components.SyncStatusScreen(
+                viewModel = viewModel,
+                onNavigateBack = { showSyncStatusScreen = false }
+            )
+        }
+    }
 
     // Observe lifecycle to reset authentication on background and prompt on foreground
     DisposableEffect(lifecycleOwner) {
@@ -209,6 +289,18 @@ fun WealthTrackerScreen(
                     }
                 },
                 actions = {
+                    val hideValues by viewModel.hideValues.collectAsState()
+                    LaunchedEffect(hideValues) {
+                        com.prajwal.utilities.tools.wealthtracker.data.MilestoneCalculator.isValuesHidden = hideValues
+                    }
+
+                    IconButton(onClick = { viewModel.toggleHideValues() }) {
+                        Icon(
+                            imageVector = if (hideValues) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = "Toggle Hide Values"
+                        )
+                    }
+
                     if (BiometricHelper.isBiometricAvailable(context)) {
                         IconButton(onClick = { viewModel.toggleBiometric() }) {
                             Icon(
@@ -242,16 +334,56 @@ fun WealthTrackerScreen(
                                 importLauncher.launch(arrayOf("application/json", "*/*"))
                             }
                         )
+                        DropdownMenuItem(
+                            text = { Text("Price Sync Status") },
+                            onClick = {
+                                showMenu = false
+                                showSyncStatusScreen = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Auto Snapshots") },
+                            onClick = {
+                                showMenu = false
+                                showAutoSnapshotDialog = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Sync Dividends") },
+                            onClick = {
+                                showMenu = false
+                                viewModel.syncDividends { msg ->
+                                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
                     }
                 }
             )
         }
     ) { paddingValues ->
+        val syncProgress by viewModel.syncProgress.collectAsState()
+        val syncMessage by viewModel.syncMessage.collectAsState()
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            if (isSyncing) {
+                LinearProgressIndicator(
+                    progress = { syncProgress },
+                    modifier = Modifier.fillMaxWidth(),
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+                Text(
+                    text = syncMessage,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+
             // Tab row
             ScrollableTabRow(
                 selectedTabIndex = selectedTab.ordinal,
@@ -278,24 +410,41 @@ fun WealthTrackerScreen(
                     searchResults = searchResults,
                     sortOption = holdingsSortOption,
                     sortAscending = holdingsSortAscending,
+                    nifty50Prices = nifty50Prices,
                     onSortOptionChanged = viewModel::onSortChipClicked,
                     onSearchQueryChanged = viewModel::updateSearchQuery,
                     onAddHolding = viewModel::addHolding,
                     onUpdateHolding = viewModel::updateHolding,
                     onTopUpHolding = viewModel::topUpHolding,
+                    onSellHolding = viewModel::sellHolding,
                     onDeleteHolding = viewModel::deleteHolding,
+                    onAddTransaction = viewModel::addTransaction,
+                    onUpdateTransaction = viewModel::updateTransaction,
+                    onDeleteTransaction = viewModel::deleteTransaction,
                     onSyncNow = {
                         viewModel.syncPricesNow { msg ->
+                            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onRefreshHolding = { holding ->
+                        viewModel.refreshHoldingPrice(holding) { msg ->
                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
                         }
                     }
                 )
 
-                WealthTab.PORTFOLIO -> PortfolioTab(
-                    snapshots = snapshots,
-                    holdings = holdings,
-                    transactions = transactions,
-                    isSyncing = isSyncing,
+                WealthTab.PORTFOLIO -> {
+                    val totalDividends by viewModel.totalDividendsEarned.collectAsState()
+                    PortfolioTab(
+                        snapshots = snapshots,
+                        holdings = holdings,
+                        transactions = transactions,
+                        isSyncing = isSyncing,
+                        includeRetirement = includeRetirementInTotal,
+                        lastAutoSyncTimestamp = viewModel.lastAutoSyncTimestamp.collectAsState().value,
+                        nifty50Prices = nifty50Prices,
+                        totalDividendsEarned = totalDividends,
+                    onToggleIncludeRetirement = viewModel::toggleIncludeRetirementInTotal,
                     onSyncNow = {
                         viewModel.syncPricesNow { msg ->
                             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -304,20 +453,29 @@ fun WealthTrackerScreen(
                     onSave = { snapshot ->
                         viewModel.saveSnapshot(snapshot)
                     },
+                    onUpdate = viewModel::updateSnapshot,
                     onDelete = viewModel::deleteSnapshot
                 )
+                }
 
                 WealthTab.REPORTS -> ReportsTab(
                     snapshots = snapshots,
                     snapshotsChronological = snapshotsChronological,
-                    transactions = transactions
+                    transactions = transactions,
+                    dividendEvents = dividendEvents,
+                    includeRetirement = includeRetirementInTotal,
+                    holdings = holdings,
+                    expectedReturnPercent = calculatorSettings.expectedReturnPercent,
+                    expenseRatioSyncFailed = viewModel.expenseRatioSyncFailed.collectAsState().value
                 )
 
                 WealthTab.MILESTONES -> MilestonesTab(
                     latestSnapshot = snapshots.firstOrNull(),
                     settings = calculatorSettings,
+                    includeRetirement = includeRetirementInTotal,
                     onMonthlyInvestmentChange = viewModel::updateMonthlyInvestment,
                     onStepupChange = viewModel::updateAnnualStepup,
+                    onStepupMonthChange = viewModel::updateStepupMonth,
                     onReturnChange = viewModel::updateExpectedReturn
                 )
             }

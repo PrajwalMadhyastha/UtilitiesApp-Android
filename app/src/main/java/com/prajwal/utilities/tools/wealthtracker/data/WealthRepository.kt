@@ -23,6 +23,9 @@ class WealthRepository(
     /** Insert a new timestamped snapshot. */
     suspend fun insertSnapshot(snapshot: AssetSnapshotEntity) = dao.insertSnapshot(snapshot)
 
+    /** Update an existing snapshot. */
+    suspend fun updateSnapshot(snapshot: AssetSnapshotEntity) = dao.updateSnapshot(snapshot)
+
     /** Delete a snapshot (accidental entry removal). */
     suspend fun deleteSnapshot(snapshot: AssetSnapshotEntity) = dao.deleteSnapshot(snapshot)
 
@@ -36,15 +39,41 @@ class WealthRepository(
 
     suspend fun deleteHolding(holding: HoldingEntity) = holdingsDao.deleteHolding(holding)
 
+    suspend fun getHoldingById(id: Int): HoldingEntity? = holdingsDao.getHoldingById(id)
+
     suspend fun updateHoldingPrice(id: Int, price: Double, previousClosePrice: Double) =
         holdingsDao.updatePrice(id, price, previousClosePrice)
+
+    suspend fun updateHoldingExpenseRatio(id: Int, expenseRatio: Double) =
+        holdingsDao.updateExpenseRatio(id, expenseRatio)
 
     suspend fun insertTransaction(transaction: com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) =
         holdingsDao.insertTransaction(transaction)
 
+    suspend fun updateTransaction(transaction: com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) =
+        holdingsDao.updateTransaction(transaction)
+
+    suspend fun deleteTransaction(transaction: com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity) =
+        holdingsDao.deleteTransaction(transaction)
+
     fun getTransactionsForHolding(holdingId: Int): Flow<List<com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity>> =
         holdingsDao.getTransactionsForHolding(holdingId)
 
+    suspend fun getTransactionsForHoldingSync(holdingId: Int): List<com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity> =
+        holdingsDao.getTransactionsForHoldingSync(holdingId)
+
     fun getAllTransactions(): Flow<List<com.prajwal.utilities.tools.wealthtracker.data.db.TransactionEntity>> =
         holdingsDao.getAllTransactions()
+
+    suspend fun insertDividendEvents(events: List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity>) =
+        holdingsDao.insertDividendEvents(events)
+
+    fun getAllDividendEvents(): Flow<List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity>> =
+        holdingsDao.getAllDividendEvents()
+
+    suspend fun getDividendEventsForSymbol(symbol: String): List<com.prajwal.utilities.tools.wealthtracker.data.db.DividendEventEntity> =
+        holdingsDao.getDividendEventsForSymbol(symbol)
+
+    suspend fun deleteDividendEventsForSymbol(symbol: String) =
+        holdingsDao.deleteDividendEventsForSymbol(symbol)
 }
