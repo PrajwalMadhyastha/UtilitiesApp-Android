@@ -91,18 +91,10 @@ class ChallanRepository(
         dao.deleteVehicleAndChallans(regNo)
     }
 
-    suspend fun seedSampleVehiclesIfEmpty() = withContext(Dispatchers.IO) {
-        val current = dao.getAllVehicles().first()
-        if (current.isEmpty()) {
-            MockChallanDataProvider.defaultSampleVehicles.forEach { v ->
-                dao.insertVehicle(VehicleEntity.fromDomain(v))
-                val mockChallans = MockChallanDataProvider.getMockChallansForVehicle(v.registrationNumber)
-                dao.syncChallansForVehicle(
-                    regNo = v.registrationNumber,
-                    newChallans = mockChallans.map { ChallanEntity.fromDomain(it) },
-                    lastCheckedAt = System.currentTimeMillis() - 86400000L
-                )
-            }
+    suspend fun removeFillerVehicles() = withContext(Dispatchers.IO) {
+        val fillerPlates = listOf("KA01MJ2024", "KA04NA8812", "KA05XY4421")
+        for (plate in fillerPlates) {
+            dao.deleteVehicleAndChallans(plate)
         }
     }
 

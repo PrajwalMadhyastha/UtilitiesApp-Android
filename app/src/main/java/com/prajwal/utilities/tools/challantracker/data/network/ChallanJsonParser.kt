@@ -77,10 +77,8 @@ object ChallanJsonParser {
                     else -> ChallanStatus.PENDING
                 }
 
-                val image = listOf("image_url", "proof_url", "photo", "evidence", "camera_image", "proof", "image")
-                    .firstNotNullOfOrNull { key ->
-                        item[key]?.toString()?.takeIf { it.isNotBlank() && it.startsWith("http") }
-                    }
+                // Deep image detection
+                val image = extractImageUrl(item)
 
                 list.add(
                     Challan(
@@ -102,5 +100,79 @@ object ChallanJsonParser {
         }
 
         return list
+    }
+
+    private fun extractImageUrl(item: Map<*, *>): String? {
+        val primaryKeys = listOf(
+            "image_url", "proof_url", "photo", "image", "img", "img_url",
+            "photo_url", "photos", "images", "evidence", "evidence_url",
+            "proof", "proofs", "camera_image", "camera_url", "camera_photo",
+            "violation_image", "violation_photo", "challan_image", "challan_photo",
+            "anpr_image", "snapshot", "attachment", "attachments", "media", "pic", "picture", "url"
+        )
+
+        for (k in primaryKeys) {
+            val v = item[k] ?: continue
+            val resolved = resolveImageValue(v)
+            if (resolved != null) return resolved
+        }
+
+        val keywords = listOf("image", "photo", "img", "proof", "evidence", "cam", "snap", "pic")
+        for ((key, value) in item) {
+            val keyStr = key?.toString()?.lowercase() ?: continue
+            if (keywords.any { keyStr.contains(it) }) {
+                val resolved = resolveImageValue(value)
+                if (resolved != null) return resolved
+            }
+        }
+
+        for ((_, value) in item) {
+            if (value is String) {
+                val clean = value.trim()
+                if ((clean.startsWith("http://") || clean.startsWith("https://")) &&
+                    (clean.endsWith(".jpg", ignoreCase = true) ||
+                     clean.endsWith(".jpeg", ignoreCase = true) ||
+                     clean.endsWith(".png", ignoreCase = true) ||
+                     clean.endsWith(".webp", ignoreCase = true) ||
+                     clean.contains("image", ignoreCase = true) ||
+                     clean.contains("photo", ignoreCase = true) ||
+                     clean.contains("evidence", ignoreCase = true))) {
+                    return clean
+                }
+            }
+        }
+
+        return null
+    }
+
+    private fun resolveImageValue(value: Any?): String? {
+        when (value) {
+            is String -> {
+                val trimmed = value.trim()
+                if (trimmed.startsWith("http://") || trimmed.startsWith("https://") || trimmed.startsWith("data:image/")) {
+                    return trimmed
+                }
+                if (trimmed.startsWith("//")) {
+                    return "https:$trimmed"
+                }
+                if (trimmed.length > 200 && !trimmed.contains(" ") && (trimmed.startsWith("/9j/") || trimmed.startsWith("iVBOR"))) {
+                    return "data:image/jpeg;base64,$trimmed"
+                }
+            }
+            is List<*> -> {
+                for (elem in value) {
+                    val resolved = resolveImageValue(elem)
+                    if (resolved != null) return resolved
+                }
+            }
+            is Map<*, *> -> {
+                val nestedKeys = listOf("url", "link", "src", "image", "path", "href")
+                for (nk in nestedKeys) {
+                    val resolved = resolveImageValue(value[nk])
+                    if (resolved != null) return resolved
+                }
+            }
+        }
+        return null
     }
 }

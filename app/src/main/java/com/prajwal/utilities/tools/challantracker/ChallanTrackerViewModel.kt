@@ -92,7 +92,7 @@ class ChallanTrackerViewModel(
 
     init {
         viewModelScope.launch {
-            repository.seedSampleVehiclesIfEmpty()
+            repository.removeFillerVehicles()
         }
     }
 
