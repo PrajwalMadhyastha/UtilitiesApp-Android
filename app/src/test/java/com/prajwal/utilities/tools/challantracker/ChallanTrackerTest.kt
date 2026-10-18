@@ -160,4 +160,32 @@ class ChallanTrackerTest {
         assertEquals(2, pending.size)
         assertEquals(1500.0, totalFine, 0.01)
     }
+
+    @Test
+    fun testResilientJsonParsing() {
+        val rawJson = """
+            {
+              "status": "success",
+              "result": [
+                {
+                  "challan_number": "KA012024999",
+                  "violation": "RIDING WITHOUT HELMET",
+                  "fine_amount": "500",
+                  "date": "14-10-2026",
+                  "place": "MG Road Trinity Circle",
+                  "status": "Pending",
+                  "image_url": "https://example.com/btp_camera.jpg"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val parsed = com.prajwal.utilities.tools.challantracker.data.network.ChallanJsonParser.parse("KA01MJ2024", rawJson)
+        assertEquals(1, parsed.size)
+        assertEquals("KA012024999", parsed.first().challanNumber)
+        assertEquals("RIDING WITHOUT HELMET", parsed.first().offenseDescription)
+        assertEquals(500.0, parsed.first().fineAmount, 0.01)
+        assertEquals("https://example.com/btp_camera.jpg", parsed.first().imageUrl)
+        assertEquals(ChallanStatus.PENDING, parsed.first().status)
+    }
 }

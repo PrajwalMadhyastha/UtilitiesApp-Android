@@ -300,10 +300,11 @@ fun ChallanTrackerScreen(
         ChallanSettingsDialog(
             initialApiKey = state.rapidApiKey,
             initialApiHost = state.rapidApiHost,
+            initialApiPath = state.rapidApiPath,
             initialMockMode = state.isMockMode,
             onDismiss = { viewModel.setSettingsDialogOpen(false) },
-            onSave = { key, host, mock ->
-                viewModel.saveSettings(key, host, mock)
+            onSave = { key, host, path, mock ->
+                viewModel.saveSettings(key, host, path, mock)
             }
         )
     }

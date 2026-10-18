@@ -7,6 +7,7 @@ import com.prajwal.utilities.tools.challantracker.data.db.ChallanDatabase
 import com.prajwal.utilities.tools.challantracker.data.db.ChallanEntity
 import com.prajwal.utilities.tools.challantracker.data.db.VehicleEntity
 import com.prajwal.utilities.tools.challantracker.data.network.ChallanApiService
+import com.prajwal.utilities.tools.challantracker.data.network.ChallanFetchRequest
 import com.prajwal.utilities.tools.challantracker.data.network.MockChallanDataProvider
 import com.prajwal.utilities.tools.challantracker.model.Challan
 import com.prajwal.utilities.tools.challantracker.model.ChallanStatus
@@ -35,8 +36,8 @@ class ChallanRepository(
         .build()
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
     private val apiService: ChallanApiService by lazy {
@@ -112,7 +113,8 @@ class ChallanRepository(
             val cleanReg = regNo.uppercase().replace("[^A-Z0-9]".toRegex(), "")
             val isMock = preferences.isMockMode.first()
             val apiKey = preferences.rapidApiKey.first()
-            val apiHost = preferences.rapidApiHost.first()
+            val apiHost = preferences.rapidApiHost.first().ifBlank { ChallanPreferences.DEFAULT_RAPID_API_HOST }
+            val apiPath = preferences.rapidApiPath.first().ifBlank { ChallanPreferences.DEFAULT_RAPID_API_PATH }
 
             if (isMock || apiKey.isBlank()) {
                 Log.d(TAG, "Fetching mock challans for vehicle $cleanReg")
@@ -122,40 +124,35 @@ class ChallanRepository(
                 return@withContext Result.success(mockChallans)
             }
 
-            // Live API request via RapidAPI
-            val url = "https://$apiHost/v1/challan"
-            Log.d(TAG, "Calling live API for $cleanReg at $url")
+            // Live API request via RapidAPI POST
+            val cleanPath = apiPath.removePrefix("/")
+            val url = "https://$apiHost/$cleanPath"
+            Log.d(TAG, "Calling live API for $cleanReg: POST $url with host=$apiHost")
 
-            val response = apiService.fetchChallans(
+            val response = apiService.fetchChallanInfo(
                 url = url,
                 apiKey = apiKey,
                 apiHost = apiHost,
-                vehicleId = cleanReg
+                request = ChallanFetchRequest(regNo = cleanReg)
             )
 
             if (!response.isSuccessful) {
-                // Try fallback query param
-                val fallbackResp = apiService.fetchChallansByRc(
-                    url = url,
-                    apiKey = apiKey,
-                    apiHost = apiHost,
-                    rcNumber = cleanReg
-                )
-                if (!fallbackResp.isSuccessful) {
-                    val code = fallbackResp.code()
-                    val err = "Challan lookup failed (HTTP $code). Verify API key or RapidAPI host."
-                    Log.w(TAG, err)
-                    return@withContext Result.failure(Exception(err))
-                }
-                val items = extractChallans(fallbackResp.body())
-                val challans = mapToDomain(cleanReg, items)
-                dao.syncChallansForVehicle(cleanReg, challans.map { ChallanEntity.fromDomain(it) }, System.currentTimeMillis())
-                return@withContext Result.success(challans)
+                val code = response.code()
+                val errBody = response.errorBody()?.string() ?: ""
+                val err = "Challan lookup failed (HTTP $code): ${errBody.take(200)}"
+                Log.w(TAG, err)
+                return@withContext Result.failure(Exception(err))
             }
 
-            val items = extractChallans(response.body())
-            val challans = mapToDomain(cleanReg, items)
-            dao.syncChallansForVehicle(cleanReg, challans.map { ChallanEntity.fromDomain(it) }, System.currentTimeMillis())
+            val rawJson = response.body()?.string() ?: ""
+            Log.d(TAG, "Received response for $cleanReg: ${rawJson.take(300)}")
+
+            val challans = com.prajwal.utilities.tools.challantracker.data.network.ChallanJsonParser.parse(cleanReg, rawJson)
+            dao.syncChallansForVehicle(
+                regNo = cleanReg,
+                newChallans = challans.map { ChallanEntity.fromDomain(it) },
+                lastCheckedAt = System.currentTimeMillis()
+            )
             Result.success(challans)
         } catch (e: Exception) {
             Log.e(TAG, "Error refreshing challans for $regNo", e)
@@ -173,44 +170,6 @@ class ChallanRepository(
         } catch (e: Exception) {
             Log.e(TAG, "Error refreshing all vehicles", e)
             Result.failure(e)
-        }
-    }
-
-    // ── Helper Mappers ────────────────────────────────────────────────────────
-
-    private fun extractChallans(body: com.prajwal.utilities.tools.challantracker.data.network.ChallanApiResponse?): List<com.prajwal.utilities.tools.challantracker.data.network.ChallanApiItem> {
-        if (body == null) return emptyList()
-        return body.data?.challans
-            ?: body.data?.violations
-            ?: body.directChallans
-            ?: body.result
-            ?: emptyList()
-    }
-
-    private fun mapToDomain(
-        vehicleNo: String,
-        items: List<com.prajwal.utilities.tools.challantracker.data.network.ChallanApiItem>
-    ): List<Challan> {
-        val now = System.currentTimeMillis()
-        return items.map { item ->
-            val status = when (item.resolvedStatus.uppercase()) {
-                "PAID", "CLEARED", "SUCCESS" -> ChallanStatus.PAID
-                "DISPOSED" -> ChallanStatus.DISPOSED
-                else -> ChallanStatus.PENDING
-            }
-
-            Challan(
-                challanNumber = item.resolvedNumber,
-                vehicleNumber = vehicleNo,
-                offenseDescription = item.resolvedOffense,
-                fineAmount = item.resolvedAmount,
-                violationDate = item.resolvedDate,
-                location = item.resolvedLocation,
-                status = status,
-                imageUrl = item.resolvedImageUrl,
-                rawDetails = null,
-                updatedAt = now
-            )
         }
     }
 

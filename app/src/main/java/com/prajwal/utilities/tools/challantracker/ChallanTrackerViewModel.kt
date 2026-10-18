@@ -27,6 +27,7 @@ data class ChallanUiState(
     val isMockMode: Boolean = true,
     val rapidApiKey: String = "",
     val rapidApiHost: String = ChallanPreferences.DEFAULT_RAPID_API_HOST,
+    val rapidApiPath: String = ChallanPreferences.DEFAULT_RAPID_API_PATH,
     val activePhotoUrl: String? = null,
     val isAddVehicleDialogOpen: Boolean = false,
     val isSettingsDialogOpen: Boolean = false,
@@ -40,12 +41,20 @@ class ChallanTrackerViewModel(
 
     private val _internalState = MutableStateFlow(ChallanUiState())
 
+    private data class SettingsBundle(
+        val isMock: Boolean,
+        val apiKey: String,
+        val apiHost: String,
+        val apiPath: String
+    )
+
     private val settingsFlow = combine(
         preferences.isMockMode,
         preferences.rapidApiKey,
-        preferences.rapidApiHost
-    ) { isMock, apiKey, apiHost ->
-        Triple(isMock, apiKey, apiHost)
+        preferences.rapidApiHost,
+        preferences.rapidApiPath
+    ) { isMock, apiKey, apiHost, apiPath ->
+        SettingsBundle(isMock, apiKey, apiHost, apiPath)
     }
 
     val uiState: StateFlow<ChallanUiState> = combine(
@@ -54,7 +63,6 @@ class ChallanTrackerViewModel(
         repository.allChallans,
         settingsFlow
     ) { internal, vehicles, allChallans, settings ->
-        val (isMock, apiKey, apiHost) = settings
         val selected = internal.selectedVehicleRegNo
         val filteredChallans = if (selected != null) {
             allChallans.filter { it.vehicleNumber.equals(selected, ignoreCase = true) }
@@ -71,9 +79,10 @@ class ChallanTrackerViewModel(
             challans = filteredChallans,
             totalPendingCount = totalPendingCount,
             totalPendingFine = totalPendingFine,
-            isMockMode = isMock,
-            rapidApiKey = apiKey,
-            rapidApiHost = apiHost
+            isMockMode = settings.isMock,
+            rapidApiKey = settings.apiKey,
+            rapidApiHost = settings.apiHost,
+            rapidApiPath = settings.apiPath
         )
     }.stateIn(
         scope = viewModelScope,
@@ -176,10 +185,11 @@ class ChallanTrackerViewModel(
         _internalState.update { it.copy(isSettingsDialogOpen = open) }
     }
 
-    fun saveSettings(apiKey: String, apiHost: String, isMockMode: Boolean) {
+    fun saveSettings(apiKey: String, apiHost: String, apiPath: String, isMockMode: Boolean) {
         viewModelScope.launch {
             preferences.setRapidApiKey(apiKey)
             preferences.setRapidApiHost(apiHost)
+            preferences.setRapidApiPath(apiPath)
             preferences.setMockMode(isMockMode)
             _internalState.update {
                 it.copy(

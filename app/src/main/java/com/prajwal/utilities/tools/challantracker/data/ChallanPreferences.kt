@@ -18,10 +18,12 @@ class ChallanPreferences(private val context: Context) {
     companion object {
         val KEY_RAPID_API_KEY = stringPreferencesKey("rapid_api_key")
         val KEY_RAPID_API_HOST = stringPreferencesKey("rapid_api_host")
+        val KEY_RAPID_API_PATH = stringPreferencesKey("rapid_api_path")
         val KEY_IS_MOCK_MODE = booleanPreferencesKey("is_mock_mode")
         val KEY_SELECTED_VEHICLE = stringPreferencesKey("selected_vehicle")
 
         const val DEFAULT_RAPID_API_HOST = "rto-challan-information-india.p.rapidapi.com"
+        const val DEFAULT_RAPID_API_PATH = "fetch_challan_info"
     }
 
     val rapidApiKey: Flow<String> = context.challanDataStore.data.map { prefs ->
@@ -30,6 +32,10 @@ class ChallanPreferences(private val context: Context) {
 
     val rapidApiHost: Flow<String> = context.challanDataStore.data.map { prefs ->
         prefs[KEY_RAPID_API_HOST] ?: DEFAULT_RAPID_API_HOST
+    }
+
+    val rapidApiPath: Flow<String> = context.challanDataStore.data.map { prefs ->
+        prefs[KEY_RAPID_API_PATH] ?: DEFAULT_RAPID_API_PATH
     }
 
     val isMockMode: Flow<Boolean> = context.challanDataStore.data.map { prefs ->
@@ -56,6 +62,12 @@ class ChallanPreferences(private val context: Context) {
     suspend fun setRapidApiHost(apiHost: String) {
         context.challanDataStore.edit { prefs ->
             prefs[KEY_RAPID_API_HOST] = apiHost.trim()
+        }
+    }
+
+    suspend fun setRapidApiPath(apiPath: String) {
+        context.challanDataStore.edit { prefs ->
+            prefs[KEY_RAPID_API_PATH] = apiPath.trim().removePrefix("/")
         }
     }
 

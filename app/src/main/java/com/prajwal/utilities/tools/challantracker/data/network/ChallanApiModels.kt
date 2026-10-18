@@ -4,6 +4,11 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
+data class ChallanFetchRequest(
+    @Json(name = "reg_no") val regNo: String
+)
+
+@JsonClass(generateAdapter = true)
 data class ChallanApiResponse(
     @Json(name = "status") val status: Any? = null,
     @Json(name = "message") val message: String? = null,

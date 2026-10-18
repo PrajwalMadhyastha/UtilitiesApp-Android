@@ -44,12 +44,14 @@ import com.prajwal.utilities.tools.challantracker.data.ChallanPreferences
 fun ChallanSettingsDialog(
     initialApiKey: String,
     initialApiHost: String,
+    initialApiPath: String,
     initialMockMode: Boolean,
     onDismiss: () -> Unit,
-    onSave: (apiKey: String, apiHost: String, isMockMode: Boolean) -> Unit
+    onSave: (apiKey: String, apiHost: String, apiPath: String, isMockMode: Boolean) -> Unit
 ) {
     var apiKey by remember { mutableStateOf(initialApiKey) }
     var apiHost by remember { mutableStateOf(initialApiHost) }
+    var apiPath by remember { mutableStateOf(initialApiPath) }
     var isMockMode by remember { mutableStateOf(initialMockMode) }
     var showPassword by remember { mutableStateOf(false) }
 
@@ -110,7 +112,7 @@ fun ChallanSettingsDialog(
                     singleLine = true,
                     enabled = !isMockMode,
                     supportingText = {
-                        Text(if (isMockMode) "Disabled in Demo Mode" else "Used for live Parivahan / RTO challan lookups")
+                        Text(if (isMockMode) "Disabled in Demo Mode" else "Required for live lookups")
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -123,6 +125,22 @@ fun ChallanSettingsDialog(
                     onValueChange = { apiHost = it },
                     label = { Text("RapidAPI Host") },
                     placeholder = { Text(ChallanPreferences.DEFAULT_RAPID_API_HOST) },
+                    singleLine = true,
+                    enabled = !isMockMode,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // RapidAPI Path
+                OutlinedTextField(
+                    value = apiPath,
+                    onValueChange = { apiPath = it },
+                    label = { Text("Endpoint Path") },
+                    placeholder = { Text(ChallanPreferences.DEFAULT_RAPID_API_PATH) },
+                    supportingText = {
+                        Text("Default: fetch_challan_info")
+                    },
                     singleLine = true,
                     enabled = !isMockMode,
                     modifier = Modifier.fillMaxWidth()
@@ -147,7 +165,7 @@ fun ChallanSettingsDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Checking 3 personal vehicles ~5 times/month requires only ~15 requests/month, well within the standard 50-100 free RapidAPI tier.",
+                            text = "Calls POST https://<host>/<path> with {'reg_no': 'KA01AB1234'}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -158,7 +176,12 @@ fun ChallanSettingsDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onSave(apiKey.trim(), apiHost.trim().ifBlank { ChallanPreferences.DEFAULT_RAPID_API_HOST }, isMockMode)
+                    onSave(
+                        apiKey.trim(),
+                        apiHost.trim().ifBlank { ChallanPreferences.DEFAULT_RAPID_API_HOST },
+                        apiPath.trim().removePrefix("/").ifBlank { ChallanPreferences.DEFAULT_RAPID_API_PATH },
+                        isMockMode
+                    )
                 }
             ) {
                 Text("Save Settings")
