@@ -217,5 +217,26 @@ fun AppNavHost(
                 onNavigateBack = { navController.popBackStack() }
             )
         }
+
+        // ── Traffic Challans ──────────────────────────────────────────
+        composable(Screen.ChallanTracker.route) {
+            val context = LocalContext.current
+            val db = remember { com.prajwal.utilities.tools.challantracker.data.db.ChallanDatabase.getDatabase(context) }
+            val prefs = remember { com.prajwal.utilities.tools.challantracker.data.ChallanPreferences(context) }
+            val repository = remember {
+                com.prajwal.utilities.tools.challantracker.data.ChallanRepository(
+                    db.challanDao(),
+                    prefs
+                )
+            }
+            val viewModel: com.prajwal.utilities.tools.challantracker.ChallanTrackerViewModel = viewModel(
+                factory = com.prajwal.utilities.tools.challantracker.ChallanTrackerViewModelFactory(repository, prefs)
+            )
+            com.prajwal.utilities.tools.challantracker.ChallanTrackerScreen(
+                viewModel = viewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
     }
 }
+

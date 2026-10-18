@@ -20,4 +20,5 @@ sealed class Screen(val route: String) {
     object PasswordManager : Screen("password_manager")
     object WorkoutTracker : Screen("workout_tracker")
     object WealthTracker : Screen("wealth_tracker")
+    object ChallanTracker : Screen("challan_tracker")
 }

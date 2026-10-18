@@ -34,6 +34,7 @@ android {
         buildConfigField("String", "DEFAULT_ROUTER_IP", "\"${localProperties.getProperty("router.default.ip", "192.168.1.1")}\"")
         buildConfigField("String", "DEFAULT_ROUTER_USERNAME", "\"${localProperties.getProperty("router.default.username", "admin")}\"")
         buildConfigField("String", "DEFAULT_ROUTER_PASSWORD", "\"${localProperties.getProperty("router.default.password", "admin")}\"")
+        buildConfigField("String", "RAPIDAPI_KEY", "\"${localProperties.getProperty("rapidapi.key", "")}\"")
     }
 
     buildTypes {
@@ -135,5 +136,8 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-moshi:2.9.0")
     implementation("com.squareup.moshi:moshi-kotlin:1.15.0")
     ksp("com.squareup.moshi:moshi-kotlin-codegen:1.15.0")
+
+    // Coil for Compose image loading
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }
 

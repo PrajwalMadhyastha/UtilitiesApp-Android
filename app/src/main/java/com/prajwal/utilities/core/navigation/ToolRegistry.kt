@@ -1,6 +1,7 @@
 package com.prajwal.utilities.core.navigation
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Fitbit
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SportsBaseball
@@ -60,6 +61,13 @@ object ToolRegistry {
             description = "Track portfolio, diversification & milestones",
             icon = Icons.AutoMirrored.Filled.TrendingUp,
             route = Screen.WealthTracker.route
+        ),
+        ToolDefinition(
+            id = "challan_tracker",
+            name = "Traffic Challans",
+            description = "Track Bangalore traffic police fines & photo evidence",
+            icon = Icons.Default.DirectionsCar,
+            route = Screen.ChallanTracker.route
         )
     )
 }
