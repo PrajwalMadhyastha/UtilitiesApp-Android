@@ -165,6 +165,64 @@ class ChallanRepository(
         }
     }
 
+    suspend fun saveKarnatakaOneScrapedChallans(
+        vehicleNo: String,
+        scrapedJson: String
+    ): Result<List<Challan>> = withContext(Dispatchers.IO) {
+        try {
+            val cleanReg = vehicleNo.uppercase().replace("[^A-Z0-9]".toRegex(), "")
+            val parsedChallans = com.prajwal.utilities.tools.challantracker.data.network.ChallanJsonParser.parse(
+                vehicleNo = cleanReg,
+                rawJson = scrapedJson
+            )
+
+            val targetReg = if (cleanReg.isNotBlank()) {
+                cleanReg
+            } else {
+                parsedChallans.firstOrNull()?.vehicleNumber?.uppercase()?.replace("[^A-Z0-9]".toRegex(), "") ?: ""
+            }
+
+            if (targetReg.isNotBlank()) {
+                // Ensure vehicle exists in DB so it appears in the vehicle bar
+                val existing = dao.getVehicle(targetReg)
+                if (existing == null) {
+                    dao.insertVehicle(
+                        VehicleEntity(
+                            registrationNumber = targetReg,
+                            nickname = targetReg,
+                            vehicleType = "FOUR_WHEELER",
+                            createdAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+
+                dao.syncChallansForVehicle(
+                    regNo = targetReg,
+                    newChallans = parsedChallans.map { ChallanEntity.fromDomain(it.copy(vehicleNumber = targetReg)) },
+                    lastCheckedAt = System.currentTimeMillis()
+                )
+            }
+
+            Log.d(TAG, "Saved ${parsedChallans.size} Karnataka One challans for vehicle $targetReg")
+            Result.success(parsedChallans)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving Karnataka One challans for vehicle $vehicleNo", e)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updateChallanPhoto(challanNumber: String, photoUrl: String) = withContext(Dispatchers.IO) {
+        try {
+            val all = dao.getAllChallans().first()
+            val match = all.find { it.challanNumber.equals(challanNumber, ignoreCase = true) }
+            if (match != null) {
+                dao.updateChallan(match.copy(imageUrl = photoUrl, updatedAt = System.currentTimeMillis()))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to update challan photo for $challanNumber", e)
+        }
+    }
+
     companion object {
         fun create(context: Context): ChallanRepository {
             val db = ChallanDatabase.getDatabase(context)

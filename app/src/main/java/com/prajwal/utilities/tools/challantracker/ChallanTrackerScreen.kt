@@ -19,10 +19,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -67,6 +69,24 @@ fun ChallanTrackerScreen(
             snackbarHostState.showSnackbar(msg)
             viewModel.clearUserMessage()
         }
+    }
+
+    if (state.isKarnatakaOneSyncOpen) {
+        com.prajwal.utilities.tools.challantracker.karnatakaone.KarnatakaOneSyncScreen(
+            vehicles = state.vehicles,
+            selectedVehicleRegNo = state.selectedVehicleRegNo,
+            savedPhoneNumber = state.savedPhoneNumber,
+            statusMessage = state.karnatakaOneStatusMessage,
+            detectedTablesCount = state.detectedTablesCount,
+            onSelectVehicle = { viewModel.selectVehicle(it) },
+            onViolationsScraped = { vehicleNo, json -> viewModel.saveKarnatakaOneChallans(vehicleNo, json) },
+            onImageCaptured = { challanNo, imageUrl -> viewModel.updateChallanPhoto(challanNo, imageUrl) },
+            onStatusUpdate = { viewModel.updateKarnatakaOneStatus(it) },
+            onTableDetected = { viewModel.updateDetectedTables(it) },
+            onSavePhone = { viewModel.savePhoneNumber(it) },
+            onDismiss = { viewModel.closeKarnatakaOneSync() }
+        )
+        return
     }
 
     Scaffold(
@@ -143,13 +163,24 @@ fun ChallanTrackerScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(20.dp))
-                        Button(
-                            onClick = { viewModel.setAddVehicleDialogOpen(true) },
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Add Vehicle")
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Button(
+                                onClick = { viewModel.setAddVehicleDialogOpen(true) },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Add Vehicle")
+                            }
+
+                            OutlinedButton(
+                                onClick = { viewModel.openKarnatakaOneSync() },
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Karnataka One")
+                            }
                         }
                     }
                 }
@@ -171,7 +202,8 @@ fun ChallanTrackerScreen(
                         isRefreshing = state.isRefreshing,
                         isMockMode = state.isMockMode,
                         onRefreshAll = { viewModel.refreshAllVehicles() },
-                        onOpenSettings = { viewModel.setSettingsDialogOpen(true) }
+                        onOpenSettings = { viewModel.setSettingsDialogOpen(true) },
+                        onSyncKarnatakaOne = { viewModel.openKarnatakaOneSync() }
                     )
                 }
 
@@ -302,9 +334,10 @@ fun ChallanTrackerScreen(
             initialApiHost = state.rapidApiHost,
             initialApiPath = state.rapidApiPath,
             initialMockMode = state.isMockMode,
+            initialPhoneNumber = state.savedPhoneNumber,
             onDismiss = { viewModel.setSettingsDialogOpen(false) },
-            onSave = { key, host, path, mock ->
-                viewModel.saveSettings(key, host, path, mock)
+            onSave = { key, host, path, mock, phone ->
+                viewModel.saveSettings(key, host, path, mock, phone)
             }
         )
     }

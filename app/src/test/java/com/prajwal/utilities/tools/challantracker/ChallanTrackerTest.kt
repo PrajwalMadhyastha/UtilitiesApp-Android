@@ -188,4 +188,58 @@ class ChallanTrackerTest {
         assertEquals("https://example.com/btp_camera.jpg", parsed.first().imageUrl)
         assertEquals(ChallanStatus.PENDING, parsed.first().status)
     }
+
+    @Test
+    fun testKarnatakaOneScrapedTableParsing() {
+        val scrapedJson = """
+            [
+              {
+                "challan_number": "TRF-BN-2024-8841",
+                "offense": "Defective / Improper Number Plate",
+                "fine_amount": 500,
+                "violation_date": "14-Oct-2026 11:32 AM",
+                "location": "MG Road Junction, Bengaluru",
+                "image_url": "https://www.karnatakaone.gov.in/PoliceCollectionOfFine/GetImage?notice=8841",
+                "status": "PENDING"
+              },
+              {
+                "challan_number": "TRF-BN-2024-9102",
+                "offense": "Pillion Rider Not Wearing Protective Headgear (Helmet)",
+                "fine_amount": 500,
+                "violation_date": "02-Sep-2026 04:15 PM",
+                "location": "Indiranagar 100ft Road, Bengaluru",
+                "image_url": "https://www.karnatakaone.gov.in/PoliceCollectionOfFine/GetImage?notice=9102",
+                "status": "PENDING"
+              }
+            ]
+        """.trimIndent()
+
+        val parsed = com.prajwal.utilities.tools.challantracker.data.network.ChallanJsonParser.parse("KA01AB1234", scrapedJson)
+        assertEquals(2, parsed.size)
+
+        val first = parsed[0]
+        assertEquals("TRF-BN-2024-8841", first.challanNumber)
+        assertEquals("KA01AB1234", first.vehicleNumber)
+        assertEquals("Defective / Improper Number Plate", first.offenseDescription)
+        assertEquals(500.0, first.fineAmount, 0.01)
+        assertEquals("https://www.karnatakaone.gov.in/PoliceCollectionOfFine/GetImage?notice=8841", first.imageUrl)
+        assertEquals(ChallanStatus.PENDING, first.status)
+
+        val second = parsed[1]
+        assertEquals("TRF-BN-2024-9102", second.challanNumber)
+        assertEquals(500.0, second.fineAmount, 0.01)
+        assertEquals("https://www.karnatakaone.gov.in/PoliceCollectionOfFine/GetImage?notice=9102", second.imageUrl)
+    }
+
+    @Test
+    fun testKarnatakaOneScriptGeneration() {
+        val fillScript = com.prajwal.utilities.tools.challantracker.karnatakaone.KarnatakaOneScripts.getFillVehicleScript("KA01AB1234")
+        assertTrue(fillScript.contains("k1FillVehicle('KA01AB1234')"))
+
+        val mobileScript = com.prajwal.utilities.tools.challantracker.karnatakaone.KarnatakaOneScripts.getFillMobileScript("9876543210")
+        assertTrue(mobileScript.contains("k1FillMobile('9876543210')"))
+
+        val scrapeScript = com.prajwal.utilities.tools.challantracker.karnatakaone.KarnatakaOneScripts.getScrapeViolationsScript("KA01AB1234")
+        assertTrue(scrapeScript.contains("k1ScrapeViolations('KA01AB1234')"))
+    }
 }

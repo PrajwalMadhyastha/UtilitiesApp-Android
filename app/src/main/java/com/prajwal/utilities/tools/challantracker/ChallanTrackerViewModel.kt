@@ -31,6 +31,10 @@ data class ChallanUiState(
     val activePhotoUrl: String? = null,
     val isAddVehicleDialogOpen: Boolean = false,
     val isSettingsDialogOpen: Boolean = false,
+    val isKarnatakaOneSyncOpen: Boolean = false,
+    val savedPhoneNumber: String = "",
+    val detectedTablesCount: Int = 0,
+    val karnatakaOneStatusMessage: String? = null,
     val userMessage: String? = null
 )
 
@@ -45,16 +49,18 @@ class ChallanTrackerViewModel(
         val isMock: Boolean,
         val apiKey: String,
         val apiHost: String,
-        val apiPath: String
+        val apiPath: String,
+        val savedPhone: String
     )
 
     private val settingsFlow = combine(
         preferences.isMockMode,
         preferences.rapidApiKey,
         preferences.rapidApiHost,
-        preferences.rapidApiPath
-    ) { isMock, apiKey, apiHost, apiPath ->
-        SettingsBundle(isMock, apiKey, apiHost, apiPath)
+        preferences.rapidApiPath,
+        preferences.savedPhoneNumber
+    ) { isMock, apiKey, apiHost, apiPath, savedPhone ->
+        SettingsBundle(isMock, apiKey, apiHost, apiPath, savedPhone)
     }
 
     val uiState: StateFlow<ChallanUiState> = combine(
@@ -82,7 +88,8 @@ class ChallanTrackerViewModel(
             isMockMode = settings.isMock,
             rapidApiKey = settings.apiKey,
             rapidApiHost = settings.apiHost,
-            rapidApiPath = settings.apiPath
+            rapidApiPath = settings.apiPath,
+            savedPhoneNumber = settings.savedPhone
         )
     }.stateIn(
         scope = viewModelScope,
@@ -185,16 +192,74 @@ class ChallanTrackerViewModel(
         _internalState.update { it.copy(isSettingsDialogOpen = open) }
     }
 
-    fun saveSettings(apiKey: String, apiHost: String, apiPath: String, isMockMode: Boolean) {
+    fun openKarnatakaOneSync(initialVehicleNo: String? = null) {
+        val target = initialVehicleNo ?: _internalState.value.selectedVehicleRegNo
+        _internalState.update {
+            it.copy(
+                isKarnatakaOneSyncOpen = true,
+                selectedVehicleRegNo = target,
+                karnatakaOneStatusMessage = "Ready. Follow Quick Pay -> Bengaluru -> Traffic Police Fine"
+            )
+        }
+    }
+
+    fun closeKarnatakaOneSync() {
+        _internalState.update { it.copy(isKarnatakaOneSyncOpen = false) }
+    }
+
+    fun saveKarnatakaOneChallans(vehicleNo: String, scrapedJson: String) {
+        viewModelScope.launch {
+            val result = repository.saveKarnatakaOneScrapedChallans(vehicleNo, scrapedJson)
+            _internalState.update { state ->
+                if (result.isSuccess) {
+                    val list = result.getOrDefault(emptyList())
+                    val photosCount = list.count { !it.imageUrl.isNullOrBlank() }
+                    state.copy(
+                        karnatakaOneStatusMessage = "Saved ${list.size} violations ($photosCount with photos)",
+                        userMessage = "Successfully imported ${list.size} violations ($photosCount with photos) for $vehicleNo"
+                    )
+                } else {
+                    state.copy(
+                        karnatakaOneStatusMessage = "Import failed: ${result.exceptionOrNull()?.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun updateChallanPhoto(challanNumber: String, photoUrl: String) {
+        viewModelScope.launch {
+            repository.updateChallanPhoto(challanNumber, photoUrl)
+        }
+    }
+
+    fun savePhoneNumber(phone: String) {
+        viewModelScope.launch {
+            preferences.setSavedPhoneNumber(phone)
+        }
+    }
+
+    fun updateKarnatakaOneStatus(message: String) {
+        _internalState.update { it.copy(karnatakaOneStatusMessage = message) }
+    }
+
+    fun updateDetectedTables(count: Int) {
+        _internalState.update { it.copy(detectedTablesCount = count) }
+    }
+
+    fun saveSettings(apiKey: String, apiHost: String, apiPath: String, isMockMode: Boolean, phoneNumber: String? = null) {
         viewModelScope.launch {
             preferences.setRapidApiKey(apiKey)
             preferences.setRapidApiHost(apiHost)
             preferences.setRapidApiPath(apiPath)
             preferences.setMockMode(isMockMode)
+            if (phoneNumber != null) {
+                preferences.setSavedPhoneNumber(phoneNumber)
+            }
             _internalState.update {
                 it.copy(
                     isSettingsDialogOpen = false,
-                    userMessage = "Settings saved (${if (isMockMode) "Mock Data Mode" else "Live API Mode"})"
+                    userMessage = "Settings saved"
                 )
             }
         }

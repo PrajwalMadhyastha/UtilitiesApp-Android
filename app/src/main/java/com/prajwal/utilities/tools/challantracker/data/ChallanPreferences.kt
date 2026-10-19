@@ -21,6 +21,7 @@ class ChallanPreferences(private val context: Context) {
         val KEY_RAPID_API_PATH = stringPreferencesKey("rapid_api_path")
         val KEY_IS_MOCK_MODE = booleanPreferencesKey("is_mock_mode")
         val KEY_SELECTED_VEHICLE = stringPreferencesKey("selected_vehicle")
+        val KEY_SAVED_PHONE_NUMBER = stringPreferencesKey("karnataka_one_saved_phone")
 
         const val DEFAULT_RAPID_API_HOST = "rto-challan-information-india.p.rapidapi.com"
         const val DEFAULT_RAPID_API_PATH = "fetch_challan_info"
@@ -53,6 +54,10 @@ class ChallanPreferences(private val context: Context) {
         prefs[KEY_SELECTED_VEHICLE]
     }
 
+    val savedPhoneNumber: Flow<String> = context.challanDataStore.data.map { prefs ->
+        prefs[KEY_SAVED_PHONE_NUMBER] ?: ""
+    }
+
     suspend fun setRapidApiKey(apiKey: String) {
         context.challanDataStore.edit { prefs ->
             prefs[KEY_RAPID_API_KEY] = apiKey.trim()
@@ -74,6 +79,12 @@ class ChallanPreferences(private val context: Context) {
     suspend fun setMockMode(enabled: Boolean) {
         context.challanDataStore.edit { prefs ->
             prefs[KEY_IS_MOCK_MODE] = enabled
+        }
+    }
+
+    suspend fun setSavedPhoneNumber(phone: String) {
+        context.challanDataStore.edit { prefs ->
+            prefs[KEY_SAVED_PHONE_NUMBER] = phone.trim()
         }
     }
 

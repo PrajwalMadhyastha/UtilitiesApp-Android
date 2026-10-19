@@ -11,7 +11,7 @@ data class VehicleEntity(
     val registrationNumber: String,
     val nickname: String,
     val vehicleType: String,
-    val lastCheckedAt: Long?,
+    val lastCheckedAt: Long? = null,
     val totalViolations: Int = 0,
     val totalFineAmount: Double = 0.0,
     val createdAt: Long = System.currentTimeMillis()

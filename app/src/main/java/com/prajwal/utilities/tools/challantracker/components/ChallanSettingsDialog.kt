@@ -46,12 +46,14 @@ fun ChallanSettingsDialog(
     initialApiHost: String,
     initialApiPath: String,
     initialMockMode: Boolean,
+    initialPhoneNumber: String = "",
     onDismiss: () -> Unit,
-    onSave: (apiKey: String, apiHost: String, apiPath: String, isMockMode: Boolean) -> Unit
+    onSave: (apiKey: String, apiHost: String, apiPath: String, isMockMode: Boolean, phoneNumber: String) -> Unit
 ) {
     var apiKey by remember { mutableStateOf(initialApiKey) }
     var apiHost by remember { mutableStateOf(initialApiHost) }
     var apiPath by remember { mutableStateOf(initialApiPath) }
+    var phoneNumber by remember { mutableStateOf(initialPhoneNumber) }
     var isMockMode by remember { mutableStateOf(initialMockMode) }
     var showPassword by remember { mutableStateOf(false) }
 
@@ -148,6 +150,21 @@ fun ChallanSettingsDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Karnataka One Phone Number
+                OutlinedTextField(
+                    value = phoneNumber,
+                    onValueChange = { phoneNumber = it },
+                    label = { Text("Mobile Number (Karnataka One)") },
+                    placeholder = { Text("9876543210") },
+                    supportingText = {
+                        Text("Autofills phone number on Karnataka One Quick Pay login")
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
                 // Info note
                 Box(
                     modifier = Modifier
@@ -165,7 +182,7 @@ fun ChallanSettingsDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Calls POST https://<host>/<path> with {'reg_no': 'KA01AB1234'}",
+                            text = "Karnataka One allows fetching official BTP camera photos via Quick Pay.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -180,7 +197,8 @@ fun ChallanSettingsDialog(
                         apiKey.trim(),
                         apiHost.trim().ifBlank { ChallanPreferences.DEFAULT_RAPID_API_HOST },
                         apiPath.trim().removePrefix("/").ifBlank { ChallanPreferences.DEFAULT_RAPID_API_PATH },
-                        isMockMode
+                        isMockMode,
+                        phoneNumber.trim()
                     )
                 }
             ) {

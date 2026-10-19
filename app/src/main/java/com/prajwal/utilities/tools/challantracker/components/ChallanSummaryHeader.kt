@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -47,6 +48,7 @@ fun ChallanSummaryHeader(
     isMockMode: Boolean,
     onRefreshAll: () -> Unit,
     onOpenSettings: () -> Unit,
+    onSyncKarnatakaOne: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val currencyFormat = NumberFormat.getCurrencyInstance(Locale("en", "IN"))
@@ -75,7 +77,7 @@ fun ChallanSummaryHeader(
                 .fillMaxWidth()
                 .padding(20.dp)
         ) {
-            // Mode Chip & Settings Row
+            // Mode Chip & Actions Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -96,30 +98,53 @@ fun ChallanSummaryHeader(
                     )
                 }
 
-                FilledTonalButton(
-                    onClick = onRefreshAll,
-                    enabled = !isRefreshing,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = contentColor.copy(alpha = 0.15f),
-                        contentColor = contentColor
-                    ),
-                    modifier = Modifier.height(34.dp)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isRefreshing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = contentColor
-                        )
-                    } else {
+                    FilledTonalButton(
+                        onClick = onSyncKarnatakaOne,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = contentColor.copy(alpha = 0.25f),
+                            contentColor = contentColor
+                        ),
+                        modifier = Modifier.height(34.dp)
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Refresh",
-                            modifier = Modifier.size(16.dp)
+                            imageVector = Icons.Default.CameraAlt,
+                            contentDescription = "Karnataka One",
+                            modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Check All", style = MaterialTheme.typography.labelMedium)
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text("Karnataka One", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    }
+
+                    FilledTonalButton(
+                        onClick = onRefreshAll,
+                        enabled = !isRefreshing,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = contentColor.copy(alpha = 0.15f),
+                            contentColor = contentColor
+                        ),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        if (isRefreshing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = contentColor
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Refresh",
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Check All", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
             }
