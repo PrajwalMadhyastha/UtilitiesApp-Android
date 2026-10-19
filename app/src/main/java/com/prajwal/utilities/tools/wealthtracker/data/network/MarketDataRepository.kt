@@ -133,10 +133,10 @@ class MarketDataRepository private constructor() {
                 .build()
             val response = sharedOkHttpClient.newCall(request).execute()
             if (!response.isSuccessful) {
-                Log.w("MarketDataRepo", "AMFI feed download HTTP error: ${response.code()}")
+                Log.w("MarketDataRepo", "AMFI feed download HTTP error: ${response.code}")
                 return@withContext Pair(emptyMap(), emptyMap())
             }
-            val body = response.body()?.string() ?: ""
+            val body = response.body?.string() ?: ""
             val byCode = mutableMapOf<String, AmfiSchemeEntry>()
             val byIsin = mutableMapOf<String, AmfiSchemeEntry>()
 
@@ -196,11 +196,11 @@ class MarketDataRepository private constructor() {
 
             val searchResponse = sharedOkHttpClient.newCall(searchRequest).execute()
             if (!searchResponse.isSuccessful) {
-                Log.w("MarketDataRepo", "Moneycontrol Solr search HTTP ${searchResponse.code()} for '$fundName'")
+                Log.w("MarketDataRepo", "Moneycontrol Solr search HTTP ${searchResponse.code} for '$fundName'")
                 return@withContext null
             }
 
-            val searchBody = searchResponse.body()?.string() ?: ""
+            val searchBody = searchResponse.body?.string() ?: ""
             if (searchBody.isBlank()) return@withContext null
 
             val amcKeywords = listOf(
@@ -293,11 +293,11 @@ class MarketDataRepository private constructor() {
 
             val detailResponse = sharedOkHttpClient.newCall(detailRequest).execute()
             if (!detailResponse.isSuccessful) {
-                Log.w("MarketDataRepo", "Moneycontrol detail HTTP ${detailResponse.code()} for $detailUrlStr")
+                Log.w("MarketDataRepo", "Moneycontrol detail HTTP ${detailResponse.code} for $detailUrlStr")
                 return@withContext null
             }
 
-            val detailBody = detailResponse.body()?.string() ?: ""
+            val detailBody = detailResponse.body?.string() ?: ""
 
             val navPatterns = listOf(
                 Regex(""""latestNAV"\s*:\s*"([0-9.]+)""""),
@@ -721,11 +721,11 @@ class MarketDataRepository private constructor() {
 
             val searchResponse = sharedOkHttpClient.newCall(searchRequest).execute()
             if (!searchResponse.isSuccessful) {
-                diagnosticLogs.add("Moneycontrol autocomplete HTTP ${searchResponse.code()} for '$ticker'")
+                diagnosticLogs.add("Moneycontrol autocomplete HTTP ${searchResponse.code} for '$ticker'")
                 return@withContext null
             }
 
-            val searchBody = searchResponse.body()?.string() ?: ""
+            val searchBody = searchResponse.body?.string() ?: ""
             if (searchBody.isBlank() || searchBody.trimStart().startsWith("{")) {
                 diagnosticLogs.add("Moneycontrol autocomplete: empty/invalid body for '$ticker'")
                 return@withContext null
@@ -777,11 +777,11 @@ class MarketDataRepository private constructor() {
 
             val priceResponse = sharedOkHttpClient.newCall(priceRequest).execute()
             if (!priceResponse.isSuccessful) {
-                diagnosticLogs.add("Moneycontrol pricefeed HTTP ${priceResponse.code()} for sc_id '$scId'")
+                diagnosticLogs.add("Moneycontrol pricefeed HTTP ${priceResponse.code} for sc_id '$scId'")
                 return@withContext null
             }
 
-            val priceBody = priceResponse.body()?.string() ?: ""
+            val priceBody = priceResponse.body?.string() ?: ""
             val priceAdapter = moshi.adapter(MoneycontrolPriceResponse::class.java)
             val priceObj = runCatching {
                 priceAdapter.fromJson(priceBody)
@@ -862,11 +862,11 @@ class MarketDataRepository private constructor() {
 
             val priceResponse = sharedOkHttpClient.newCall(priceRequest).execute()
             if (!priceResponse.isSuccessful) {
-                diagnosticLogs.add("Moneycontrol index HTTP ${priceResponse.code()} for index '$indexId'")
+                diagnosticLogs.add("Moneycontrol index HTTP ${priceResponse.code} for index '$indexId'")
                 return@withContext null
             }
 
-            val priceBody = priceResponse.body()?.string() ?: ""
+            val priceBody = priceResponse.body?.string() ?: ""
             val moshi = com.squareup.moshi.Moshi.Builder()
                 .add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()
             val priceAdapter = moshi.adapter(MoneycontrolPriceResponse::class.java)
@@ -995,11 +995,11 @@ class MarketDataRepository private constructor() {
 
             val searchResponse = sharedOkHttpClient.newCall(searchRequest).execute()
             if (!searchResponse.isSuccessful) {
-                Log.e("MarketDataRepo", "SGB Moneycontrol search failed: HTTP ${searchResponse.code()} for $cleanTicker")
+                Log.e("MarketDataRepo", "SGB Moneycontrol search failed: HTTP ${searchResponse.code} for $cleanTicker")
                 return@withContext null
             }
 
-            val searchBody = searchResponse.body()?.string() ?: ""
+            val searchBody = searchResponse.body?.string() ?: ""
             val linkMatch = Regex(""""link_src"\s*:\s*"([^"]+)"""").find(searchBody)
 
             if (linkMatch == null) {
@@ -1020,11 +1020,11 @@ class MarketDataRepository private constructor() {
 
             val detailResponse = sharedOkHttpClient.newCall(detailRequest).execute()
             if (!detailResponse.isSuccessful) {
-                Log.e("MarketDataRepo", "SGB Moneycontrol detail page failed: HTTP ${detailResponse.code()} ($detailUrlStr)")
+                Log.e("MarketDataRepo", "SGB Moneycontrol detail page failed: HTTP ${detailResponse.code} ($detailUrlStr)")
                 return@withContext null
             }
 
-            val detailBody = detailResponse.body()?.string() ?: ""
+            val detailBody = detailResponse.body?.string() ?: ""
 
             // Multiple price patterns to survive minor DOM changes:
             val price = listOf(

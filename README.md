@@ -18,6 +18,14 @@ A modern, modular Android toolkit designed to simplify your daily digital life. 
 - **Haptic Feedback**: Physical vibration on landing for a premium feel.
 - **Lightning Fast**: Zero-lag interaction designed for immediate results.
 
+### 3. Traffic Challans
+*Track Bengaluru traffic police violations, pending fines, and ANPR camera photo proof.*
+- **Multi-Vehicle Management**: Save vehicles (cars, scooters, bikes) with customized nicknames and formatted number plates.
+- **On-Demand Manual Checks**: Zero background battery drain or quota wastage—check fines whenever you need.
+- **Camera Evidence Proof**: View high-resolution AI/ANPR camera snapshots with tap-to-zoom modal for contactless violations.
+- **Demo & Live API Modes**: Test realistic Bangalore traffic violations out-of-the-box or plug in your RapidAPI key.
+- **Offline Ledger**: Room-backed persistence keeps previous lookups and violation history accessible offline.
+
 ### Coming Soon
 - **Cricket Stats**: Track personal batting and bowling performance.
 - **Passwords**: An offline-first, secure personal vault.
